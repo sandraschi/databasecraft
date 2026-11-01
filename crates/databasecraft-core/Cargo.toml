@@ -1,0 +1,17 @@
+[package]
+name = "databasecraft-core"
+version = "0.1.0"
+edition = "2021"
+description = "L1 DatabaseCraft core: Command bus, schema models, cross-craft exports, and demo seeds"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+databasecraft-store = { path = "../databasecraft-store" }
+
+[lints]
+workspace = true
