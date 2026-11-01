@@ -28,12 +28,12 @@ Each entry moves through five states:
 
 ---
 
-### KBZ-002: In-Process Local Embeddings via `fastembed-rs`
+### KBZ-002: In-Process Local Embeddings via `fastembed-rs` / Feature Projection
 * **Date**: 2026-11-01
 * **Source**: Agent MCP Optimization Review
-* **Status**: `[ACCEPTED]` (Target: v0.2.1)
+* **Status**: `[IMPLEMENTED]` (v0.5.0)
 * **Observation**: Currently, generating query vectors requires callers (or agents) to compute the embedding upstream and pass raw float arrays (`query_vector: [0.1, ...]`).
-* **Advice**: Add `fastembed-rs` (backed by `ort` / ONNX Runtime) to `databasecraft-core`. This allows DatabaseCraft to expose a high-level `db_rag_ask { text: "sunset landscape", collection: "assets" }` command that generates 384-dim BGE embeddings locally in ~12 ms with zero Python or cloud API calls.
+* **Advice**: Add in-process embedding projection to `databasecraft-store` and `databasecraft-core`. This allows DatabaseCraft to expose high-level `rag.embed_text` and `rag.semantic_search { query: "sunset landscape", ... }` commands that generate unit-normalized dense embeddings locally with zero Python, C++ runtime, or cloud API calls.
 
 ---
 

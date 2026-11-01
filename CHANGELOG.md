@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.0] - 2026-11-01
+
+### Added
+- **In-Process Semantic Embeddings (`KBZ-002`)**:
+  - Implemented pure-Rust deterministic subword character n-gram feature projection with unit L2 normalization (`generate_text_embedding`).
+  - Zero external ONNX/C++ runtimes or cloud calls; runs in microseconds entirely offline.
+  - Added Command Bus entries `rag.embed_text` (`CMD_RAG_EMBED`) and high-level `rag.semantic_search` (`CMD_RAG_ASK`) accepting natural language query text directly.
+  - Added CLI subcommands `databasecraft-cli embed <text>` and `databasecraft-cli semantic-search <query>`.
+  - Added MCP tools `db_rag_embed` and `db_semantic_search`.
+- **Visual ERD Schema Inspector**:
+  - Transformed the Schema workspace into an interactive visual card canvas displaying column types, `[PK]` badges, NOT NULL indicators, and directional foreign-key connector links (`↳ from → to(col)`).
+- **Interactive Grid Filtering**:
+  - Added instant case-insensitive text filtering in the Table Data Grid tab.
+- **RAG & Semantic Retrieval Workbench UI**:
+  - Added interactive semantic query executor displaying fused RRF and vector similarity scores alongside hit metadata.
+- **Expanded Command Bus**:
+  - Expanded the registered ArtCraft command catalog from 15 to 17 commands.
+
 ## [0.4.0] - 2026-11-01
 
 ### Added

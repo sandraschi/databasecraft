@@ -84,6 +84,8 @@ Following the **ArtCraft Containment Harness** ([`CONTAINMENT_AND_CRATES.md`](..
 | **F15** | Control Port `14113` | Registered live cross-craft orchestration channel. | ✅ Complete |
 | **F16** | 5-View `egui` Desktop UI | Virtualized grid, form cards, ERD node canvas, SQL console, and media gallery. | ✅ Complete |
 | **F17** | Two-Plane Control Architecture | Live TCP listener on port `14113` (Plane 2) + command registry introspection (`commands`, `describe`). | ✅ Complete |
+| **F18** | In-Process Semantic Embeddings | Pure-Rust deterministic subword feature projection (`rag.embed_text`, `rag.semantic_search`). | ✅ Complete |
+| **F19** | Visual ERD & Live Grid Filter | Interactive ERD card canvas with FK links + real-time table grid filtering. | ✅ Complete |
 
 ---
 
