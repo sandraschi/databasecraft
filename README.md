@@ -1,0 +1,46 @@
+# DatabaseCraft
+
+**DatabaseCraft** is the pure-Rust relational database, schema engine, and dynamic data-merge platform built for the **Storytold ArtCraft** creative ecosystem.
+
+```
+       [ DatabaseCraft ] (Control Port 14113)
+        /       |       \
+       v        v        v
+ DesignCraft DeckCraft WordCraft
+(Catalog Spread) (Live Deck) (Mail Merge)
+```
+
+## Features
+
+- **Pure-Rust & Zero-Panic**: Enforces `deny(clippy::unwrap_used)` throughout.
+- **Embedded & Local-First**: SQLite-backed `.dbcraft` storage with WAL mode, ACID transactions, and foreign key enforcement.
+- **Universal Command Bus (`Command::dispatch`)**: CLI subcommands, MCP `tools/call`, and desktop UI execute the exact same typed commands.
+- **Cross-Craft Data Merge**: Export query results directly formatted for:
+  - **DesignCraft**: Multi-page catalog and spread data merge.
+  - **DeckCraft**: Slide-ready KPI tables and charts.
+  - **WordCraft**: Mail-merge dictionaries and report variables.
+  - **GridCraft**: Seamless CSV/TSV table interchange.
+  - **PdfCraft**: Direct report and ledger layout tables.
+- **Agent-Ready MCP Server**: Built-in line-delimited stdio Model Context Protocol (MCP `2024-11-05`) server.
+
+## Quickstart
+
+```powershell
+# Show status and control port
+cargo run -p databasecraft-mcp -- status
+
+# Seed deterministic ecommerce demo data
+cargo run -p databasecraft-mcp -- seed-demo --name ecommerce
+
+# Query products table
+cargo run -p databasecraft-mcp -- query --sql "SELECT sku, title, price FROM products;"
+
+# Export formatted data merge for DesignCraft
+cargo run -p databasecraft-mcp -- export-merge --query "SELECT sku, title, price, hero_image FROM products;" --target designcraft
+
+# Run Model Context Protocol (MCP) server
+cargo run -p databasecraft-mcp -- mcp
+
+# Run desktop app in headless smoke verification mode
+cargo run -p databasecraft-app -- --smoke
+```

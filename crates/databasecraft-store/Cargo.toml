@@ -1,0 +1,15 @@
+[package]
+name = "databasecraft-store"
+version = "0.1.0"
+edition = "2021"
+description = "L1 SQLite and relational store for DatabaseCraft (rusqlite, local-first .dbcraft)"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+rusqlite = { workspace = true }
+chrono = { workspace = true }
+
+[lints]
+workspace = true

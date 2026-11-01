@@ -1,0 +1,6 @@
+/target
+**/*.rs.bk
+*.dbcraft*
+*.sqlite*
+.DS_Store
+Thumbs.db
