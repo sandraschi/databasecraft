@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.0] - 2026-11-01
+
+### Added
+- **Full GPU-Accelerated Desktop UI (`databasecraft-app`)**:
+  - Implemented 5-view native immediate-mode desktop canvas using `egui 0.37` and `eframe` running at 60–144 FPS with zero WebView2.
+  - **Top Bar**: Live control port indicator (`Port 14113 [Ready]`), quick deterministic demo seed triggers (`Ecommerce`, `Film`, `KPI`), and global Dark/Light theme toggle.
+  - **Table Data Grid**: Virtualized high-fps cell grid rendering records, columns, and data types directly from SQLite.
+  - **SQL Query Console**: Interactive query editor with execution telemetry, error reporting, and pretty-printed results.
+  - **Schema & ERD**: Complete relational schema and foreign-key relation inspector.
+  - **RAG & Vector Workbench**: Interactive semantic retrieval and BM25 testing workbench.
+  - **Cross-Craft Data Merge**: Dynamic merge payload generator and preview for DesignCraft, DeckCraft, WordCraft, GridCraft, and PdfCraft.
+  - Retained instantaneous `--smoke` headless CI verification mode.
+
 ## [0.2.0] - 2026-11-01
 
 ### Added

@@ -818,7 +818,7 @@ checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
 
 [[package]]
 name = "databasecraft-app"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "clap",
  "databasecraft-core",
@@ -831,7 +831,7 @@ dependencies = [
 
 [[package]]
 name = "databasecraft-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "databasecraft-store",
@@ -843,7 +843,7 @@ dependencies = [
 
 [[package]]
 name = "databasecraft-mcp"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "clap",
@@ -856,7 +856,7 @@ dependencies = [
 
 [[package]]
 name = "databasecraft-store"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "rusqlite",

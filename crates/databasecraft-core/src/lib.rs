@@ -25,7 +25,7 @@ use serde_json::{json, Value};
 /// Standard registered control port for DatabaseCraft in the ArtCraft family.
 pub const CONTROL_PORT: u16 = 14113;
 pub const APP_NAME: &str = "databasecraft";
-pub const APP_VERSION: &str = "0.2.0";
+pub const APP_VERSION: &str = "0.3.0";
 
 /// Unique string IDs exposed over MCP `tools/list` and the CLI.
 pub const CMD_STATUS: &str = "status";

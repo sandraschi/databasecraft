@@ -1,6 +1,6 @@
 [package]
 name = "databasecraft-app"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "L3 Native Desktop UI application for DatabaseCraft (ArtCraft egui/eframe pattern)"
 license = "MIT OR Apache-2.0"
