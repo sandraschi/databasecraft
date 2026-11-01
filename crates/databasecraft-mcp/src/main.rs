@@ -321,6 +321,35 @@ pub fn tools_list() -> Value {
                 },
                 "required": ["name"]
             }
+        },
+        {
+            "name": "db_vector_search",
+            "description": "Execute a dense vector similarity search (cosine, dot_product, l2) over an embedded vector table",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "table": { "type": "string", "description": "Vector table name" },
+                    "vector": { "type": "array", "items": { "type": "number" }, "description": "Dense query vector" },
+                    "metric": { "type": "string", "description": "Distance metric: cosine (default), dot_product, or l2" },
+                    "top_k": { "type": "integer", "description": "Maximum number of results to return (default: 10)" }
+                },
+                "required": ["table", "vector"]
+            }
+        },
+        {
+            "name": "db_hybrid_search",
+            "description": "Execute a hybrid RAG search combining dense vectors and sparse BM25 text keywords with Reciprocal Rank Fusion",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "vector_table": { "type": "string", "description": "Dense vector table name" },
+                    "fts_table": { "type": "string", "description": "SQLite FTS5 full-text table name" },
+                    "query_text": { "type": "string", "description": "Natural language or keyword query string" },
+                    "query_vector": { "type": "array", "items": { "type": "number" }, "description": "Dense query vector" },
+                    "top_k": { "type": "integer", "description": "Maximum number of fused results to return (default: 10)" }
+                },
+                "required": ["vector_table", "fts_table", "query_text", "query_vector"]
+            }
         }
     ])
 }
@@ -362,6 +391,57 @@ pub fn call_tool(rt: &Runtime, store: &DatabaseStore, name: &str, args: &Value) 
         "db_seed_demo" => {
             let name = args["name"].as_str().unwrap_or("").to_string();
             rt.block_on(dispatch(Command::SeedDemo { name }, store))
+        }
+        "db_vector_search" => {
+            let table = args["table"].as_str().unwrap_or("").to_string();
+            let vector = args["vector"]
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_f64().map(|f| f as f32))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let metric_str = args["metric"].as_str().unwrap_or("cosine");
+            let metric = match metric_str {
+                "dot_product" => Some(databasecraft_store::VectorMetric::DotProduct),
+                "l2" => Some(databasecraft_store::VectorMetric::L2),
+                _ => Some(databasecraft_store::VectorMetric::Cosine),
+            };
+            let top_k = args["top_k"].as_u64().map(|n| n as usize);
+            rt.block_on(dispatch(
+                Command::VectorSearch {
+                    table,
+                    vector,
+                    metric,
+                    top_k,
+                },
+                store,
+            ))
+        }
+        "db_hybrid_search" => {
+            let vector_table = args["vector_table"].as_str().unwrap_or("").to_string();
+            let fts_table = args["fts_table"].as_str().unwrap_or("").to_string();
+            let query_text = args["query_text"].as_str().unwrap_or("").to_string();
+            let query_vector = args["query_vector"]
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_f64().map(|f| f as f32))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let top_k = args["top_k"].as_u64().map(|n| n as usize);
+            rt.block_on(dispatch(
+                Command::HybridSearch {
+                    vector_table,
+                    fts_table,
+                    query_text,
+                    query_vector,
+                    top_k,
+                },
+                store,
+            ))
         }
         unknown => json!({ "success": false, "error": format!("Unknown tool '{unknown}'") }),
     }

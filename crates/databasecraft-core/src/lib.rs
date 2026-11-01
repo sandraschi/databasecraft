@@ -38,6 +38,12 @@ pub const CMD_RECORD_DELETE: &str = "db.record_delete";
 pub const CMD_EXPORT_MERGE: &str = "db.export_merge";
 pub const CMD_SEED_DEMO: &str = "db.seed_demo";
 pub const CMD_EXECUTE: &str = "db.execute";
+pub const CMD_VECTOR_INIT: &str = "rag.vector_init";
+pub const CMD_VECTOR_INSERT: &str = "rag.vector_insert";
+pub const CMD_VECTOR_SEARCH: &str = "rag.vector_search";
+pub const CMD_FTS_INIT: &str = "rag.fts_init";
+pub const CMD_FTS_SEARCH: &str = "rag.fts_search";
+pub const CMD_HYBRID_SEARCH: &str = "rag.hybrid_search";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "command", content = "params")]
@@ -75,6 +81,38 @@ pub enum Command {
     },
     Execute {
         sql: String,
+    },
+    VectorInit {
+        table: String,
+        dimensions: usize,
+    },
+    VectorInsert {
+        table: String,
+        id: i64,
+        vector: Vec<f32>,
+        metadata: Value,
+    },
+    VectorSearch {
+        table: String,
+        vector: Vec<f32>,
+        metric: Option<databasecraft_store::VectorMetric>,
+        top_k: Option<usize>,
+    },
+    FtsInit {
+        table: String,
+        columns: Vec<String>,
+    },
+    FtsSearch {
+        table: String,
+        query: String,
+        top_k: Option<usize>,
+    },
+    HybridSearch {
+        vector_table: String,
+        fts_table: String,
+        query_text: String,
+        query_vector: Vec<f32>,
+        top_k: Option<usize>,
     },
 }
 
@@ -267,6 +305,99 @@ fn execute_dispatch(cmd: Command, store: &DatabaseStore) -> Result<Value, Databa
             Ok(json!({
                 "success": true,
                 "rows_affected": affected,
+            }))
+        }
+        Command::VectorInit { table, dimensions } => {
+            validate_identifier(&table)?;
+            store.init_vector_table(&table, dimensions)?;
+            Ok(json!({
+                "success": true,
+                "table": table,
+                "dimensions": dimensions,
+            }))
+        }
+        Command::VectorInsert {
+            table,
+            id,
+            vector,
+            metadata,
+        } => {
+            validate_identifier(&table)?;
+            store.insert_vector(&table, id, &vector, &metadata)?;
+            Ok(json!({
+                "success": true,
+                "table": table,
+                "id": id,
+                "dimensions": vector.len(),
+            }))
+        }
+        Command::VectorSearch {
+            table,
+            vector,
+            metric,
+            top_k,
+        } => {
+            validate_identifier(&table)?;
+            let chosen_metric = metric.unwrap_or(databasecraft_store::VectorMetric::Cosine);
+            let k = top_k.unwrap_or(10);
+            let hits = store.search_vector(&table, &vector, chosen_metric, k)?;
+            Ok(json!({
+                "success": true,
+                "table": table,
+                "count": hits.len(),
+                "hits": hits,
+            }))
+        }
+        Command::FtsInit { table, columns } => {
+            validate_identifier(&table)?;
+            for col in &columns {
+                validate_identifier(col)?;
+            }
+            let col_refs = columns.iter().map(|s| s.as_str()).collect::<Vec<_>>();
+            store.init_fts(&table, &col_refs)?;
+            Ok(json!({
+                "success": true,
+                "fts_table": table,
+                "columns": columns,
+            }))
+        }
+        Command::FtsSearch {
+            table,
+            query,
+            top_k,
+        } => {
+            validate_identifier(&table)?;
+            let k = top_k.unwrap_or(10);
+            let hits = store.search_fts(&table, &query, k)?;
+            Ok(json!({
+                "success": true,
+                "table": table,
+                "count": hits.len(),
+                "hits": hits,
+            }))
+        }
+        Command::HybridSearch {
+            vector_table,
+            fts_table,
+            query_text,
+            query_vector,
+            top_k,
+        } => {
+            validate_identifier(&vector_table)?;
+            validate_identifier(&fts_table)?;
+            let k = top_k.unwrap_or(10);
+            let hits = store.hybrid_search(
+                &vector_table,
+                &fts_table,
+                &query_text,
+                &query_vector,
+                k,
+                60.0,
+            )?;
+            Ok(json!({
+                "success": true,
+                "count": hits.len(),
+                "hits": hits,
             }))
         }
     }

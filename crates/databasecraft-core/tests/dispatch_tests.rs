@@ -117,3 +117,121 @@ async fn test_hostile_input_fence() -> Result<(), Box<dyn std::error::Error>> {
     assert!(err_msg.contains("illegal characters"));
     Ok(())
 }
+
+#[tokio::test]
+async fn test_vector_insert_and_cosine_search() -> Result<(), Box<dyn std::error::Error>> {
+    let store = DatabaseStore::open_in_memory()?;
+    let init_res = dispatch(
+        Command::VectorInit {
+            table: "assets_vec".to_string(),
+            dimensions: 4,
+        },
+        &store,
+    )
+    .await;
+    assert_eq!(init_res["success"], true);
+
+    // Insert two vectors: vector 1 is close to [1.0, 0.0, 0.0, 0.0], vector 2 is orthogonal
+    dispatch(
+        Command::VectorInsert {
+            table: "assets_vec".to_string(),
+            id: 1,
+            vector: vec![0.95, 0.05, 0.0, 0.0],
+            metadata: serde_json::json!({ "title": "Warm Sunset Landscape", "app": "photocraft" }),
+        },
+        &store,
+    )
+    .await;
+
+    dispatch(
+        Command::VectorInsert {
+            table: "assets_vec".to_string(),
+            id: 2,
+            vector: vec![0.0, 0.0, 0.98, 0.02],
+            metadata: serde_json::json!({ "title": "Cyberpunk Neon City", "app": "vectorcraft" }),
+        },
+        &store,
+    )
+    .await;
+
+    // Query for something close to vector 1
+    let search_res = dispatch(
+        Command::VectorSearch {
+            table: "assets_vec".to_string(),
+            vector: vec![1.0, 0.0, 0.0, 0.0],
+            metric: Some(databasecraft_store::VectorMetric::Cosine),
+            top_k: Some(1),
+        },
+        &store,
+    )
+    .await;
+
+    assert_eq!(search_res["success"], true);
+    assert_eq!(search_res["count"], 1);
+    let hits = search_res["hits"].as_array().ok_or("missing hits")?;
+    let top_hit = hits.first().ok_or("missing top hit")?;
+    assert_eq!(top_hit["id"], 1);
+    assert!(top_hit["score"].as_f64().unwrap_or(0.0) > 0.99);
+    assert_eq!(top_hit["metadata"]["app"], "photocraft");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_hybrid_rag_search() -> Result<(), Box<dyn std::error::Error>> {
+    let store = DatabaseStore::open_in_memory()?;
+
+    // 1. Vector table
+    dispatch(
+        Command::VectorInit {
+            table: "film_scenes_vec".to_string(),
+            dimensions: 3,
+        },
+        &store,
+    )
+    .await;
+
+    dispatch(
+        Command::VectorInsert {
+            table: "film_scenes_vec".to_string(),
+            id: 101,
+            vector: vec![0.9, 0.1, 0.0],
+            metadata: serde_json::json!({ "scene": "Vienna Rooftop Dawn" }),
+        },
+        &store,
+    )
+    .await;
+
+    // 2. FTS table
+    dispatch(
+        Command::FtsInit {
+            table: "film_scenes_fts".to_string(),
+            columns: vec!["title".to_string(), "notes".to_string()],
+        },
+        &store,
+    )
+    .await;
+
+    store.execute(
+        "INSERT INTO film_scenes_fts (rowid, title, notes) VALUES (101, 'Vienna Rooftop Dawn', 'Hero master take 35mm');"
+    )?;
+
+    // 3. Hybrid search
+    let hybrid_res = dispatch(
+        Command::HybridSearch {
+            vector_table: "film_scenes_vec".to_string(),
+            fts_table: "film_scenes_fts".to_string(),
+            query_text: "Rooftop Dawn".to_string(),
+            query_vector: vec![1.0, 0.0, 0.0],
+            top_k: Some(5),
+        },
+        &store,
+    )
+    .await;
+
+    assert_eq!(hybrid_res["success"], true);
+    let hits = hybrid_res["hits"].as_array().ok_or("missing hybrid hits")?;
+    let top = hits.first().ok_or("missing top hit")?;
+    assert_eq!(top["id"], 101);
+    assert!(top["rrf_score"].as_f64().unwrap_or(0.0) > 0.0);
+    Ok(())
+}

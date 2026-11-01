@@ -1,5 +1,6 @@
 /target
 **/*.rs.bk
+*.bak
 *.dbcraft*
 *.sqlite*
 .DS_Store

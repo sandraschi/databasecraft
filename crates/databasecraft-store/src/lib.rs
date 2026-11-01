@@ -7,6 +7,13 @@
 #![deny(clippy::unimplemented)]
 #![deny(clippy::todo)]
 
+pub mod vector;
+
+pub use vector::{
+    cosine_similarity, dot_product, l2_distance, pack_vector, unpack_vector, FtsMatch, HybridMatch,
+    VectorMatch, VectorMetric,
+};
+
 use rusqlite::{types::ValueRef, Connection};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -257,5 +264,241 @@ impl DatabaseStore {
             schemas.push(self.table_schema(&table)?);
         }
         Ok(FullSchema { tables: schemas })
+    }
+
+    /// Initialize a vector table for dense vector embeddings.
+    pub fn init_vector_table(
+        &self,
+        table_name: &str,
+        _dimensions: usize,
+    ) -> Result<(), StoreError> {
+        if !table_name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
+            return Err(StoreError::InvalidInput(format!(
+                "table name '{table_name}' contains illegal characters"
+            )));
+        }
+        let sql = format!(
+            "CREATE TABLE IF NOT EXISTS \"{table_name}\" (
+                id INTEGER PRIMARY KEY,
+                vector BLOB NOT NULL,
+                dimensions INTEGER NOT NULL,
+                metadata TEXT
+            );"
+        );
+        self.execute(&sql)?;
+        Ok(())
+    }
+
+    /// Insert or replace a vector embedding with associated JSON metadata.
+    pub fn insert_vector(
+        &self,
+        table_name: &str,
+        id: i64,
+        vector: &[f32],
+        metadata: &serde_json::Value,
+    ) -> Result<(), StoreError> {
+        if !table_name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
+            return Err(StoreError::InvalidInput(format!(
+                "table name '{table_name}' contains illegal characters"
+            )));
+        }
+        let packed = pack_vector(vector);
+        let meta_str = metadata.to_string();
+        let dims = vector.len() as i64;
+
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Lock(e.to_string()))?;
+        let sql = format!("INSERT OR REPLACE INTO \"{table_name}\" (id, vector, dimensions, metadata) VALUES (?, ?, ?, ?);");
+        let mut stmt = conn.prepare(&sql)?;
+        stmt.execute(rusqlite::params![id, packed, dims, meta_str])?;
+        Ok(())
+    }
+
+    /// Execute a dense vector similarity search across a vector table.
+    pub fn search_vector(
+        &self,
+        table_name: &str,
+        query_vec: &[f32],
+        metric: VectorMetric,
+        top_k: usize,
+    ) -> Result<Vec<VectorMatch>, StoreError> {
+        if !table_name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
+            return Err(StoreError::InvalidInput(format!(
+                "table name '{table_name}' contains illegal characters"
+            )));
+        }
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Lock(e.to_string()))?;
+        let sql = format!("SELECT id, vector, metadata FROM \"{table_name}\";");
+        let mut stmt = conn.prepare(&sql)?;
+
+        let mut matches = Vec::new();
+        let mut rows = stmt.query([])?;
+        while let Some(row) = rows.next()? {
+            let id: i64 = row.get(0)?;
+            let blob: Vec<u8> = row.get(1)?;
+            let meta_str: Option<String> = row.get(2)?;
+            let candidate_vec = unpack_vector(&blob);
+
+            let score = match metric {
+                VectorMetric::Cosine => cosine_similarity(query_vec, &candidate_vec),
+                VectorMetric::DotProduct => dot_product(query_vec, &candidate_vec),
+                VectorMetric::L2 => {
+                    let dist = l2_distance(query_vec, &candidate_vec);
+                    1.0 / (1.0 + dist) // normalize distance to [0, 1] similarity
+                }
+            };
+
+            let metadata = meta_str
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or(serde_json::Value::Null);
+
+            matches.push(VectorMatch {
+                id,
+                score,
+                metadata,
+            });
+        }
+
+        // Sort descending by score
+        matches.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        matches.truncate(top_k);
+        Ok(matches)
+    }
+
+    /// Initialize an SQLite FTS5 full-text search table for sparse keyword indexing.
+    pub fn init_fts(&self, fts_table: &str, columns: &[&str]) -> Result<(), StoreError> {
+        if !fts_table
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
+            return Err(StoreError::InvalidInput(format!(
+                "fts table name '{fts_table}' contains illegal characters"
+            )));
+        }
+        let cols_sql = columns
+            .iter()
+            .map(|c| format!("\"{}\"", c))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql =
+            format!("CREATE VIRTUAL TABLE IF NOT EXISTS \"{fts_table}\" USING fts5({cols_sql});");
+        self.execute(&sql)?;
+        Ok(())
+    }
+
+    /// Execute an SQLite FTS5 full-text search returning matches ranked by BM25.
+    pub fn search_fts(
+        &self,
+        fts_table: &str,
+        query: &str,
+        top_k: usize,
+    ) -> Result<Vec<FtsMatch>, StoreError> {
+        if !fts_table
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
+            return Err(StoreError::InvalidInput(format!(
+                "fts table name '{fts_table}' contains illegal characters"
+            )));
+        }
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Lock(e.to_string()))?;
+        let sql = format!(
+            "SELECT rowid, rank FROM \"{fts_table}\" WHERE \"{fts_table}\" MATCH ? ORDER BY rank LIMIT ?;"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params![query, top_k as i64], |row| {
+            Ok(FtsMatch {
+                id: row.get(0)?,
+                rank: row.get(1)?,
+                snippet: String::new(),
+            })
+        })?;
+
+        let mut matches = Vec::new();
+        for r in rows {
+            matches.push(r?);
+        }
+        Ok(matches)
+    }
+
+    /// Execute a Hybrid RAG search: combines dense vector similarity with sparse BM25 keyword matching via Reciprocal Rank Fusion (RRF).
+    pub fn hybrid_search(
+        &self,
+        vector_table: &str,
+        fts_table: &str,
+        query_text: &str,
+        query_vec: &[f32],
+        top_k: usize,
+        rrf_k: f64,
+    ) -> Result<Vec<HybridMatch>, StoreError> {
+        let vector_hits =
+            self.search_vector(vector_table, query_vec, VectorMetric::Cosine, top_k * 2)?;
+        let fts_hits = self
+            .search_fts(fts_table, query_text, top_k * 2)
+            .unwrap_or_default();
+
+        let mut rrf_scores: std::collections::HashMap<
+            i64,
+            (f64, Option<f32>, Option<f64>, serde_json::Value),
+        > = std::collections::HashMap::new();
+
+        for (rank, hit) in vector_hits.iter().enumerate() {
+            let rrf_inc = 1.0 / (rrf_k + (rank as f64 + 1.0));
+            let entry = rrf_scores
+                .entry(hit.id)
+                .or_insert((0.0, None, None, hit.metadata.clone()));
+            entry.0 += rrf_inc;
+            entry.1 = Some(hit.score);
+        }
+
+        for (rank, hit) in fts_hits.iter().enumerate() {
+            let rrf_inc = 1.0 / (rrf_k + (rank as f64 + 1.0));
+            let entry =
+                rrf_scores
+                    .entry(hit.id)
+                    .or_insert((0.0, None, None, serde_json::Value::Null));
+            entry.0 += rrf_inc;
+            entry.2 = Some(hit.rank);
+        }
+
+        let mut hybrid_matches = Vec::new();
+        for (id, (score, vec_score, fts_rank, meta)) in rrf_scores {
+            hybrid_matches.push(HybridMatch {
+                id,
+                rrf_score: score,
+                vector_score: vec_score,
+                fts_rank,
+                metadata: meta,
+            });
+        }
+
+        hybrid_matches.sort_by(|a, b| {
+            b.rrf_score
+                .partial_cmp(&a.rrf_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        hybrid_matches.truncate(top_k);
+        Ok(hybrid_matches)
     }
 }
