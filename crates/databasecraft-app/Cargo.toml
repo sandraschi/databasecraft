@@ -1,0 +1,21 @@
+[package]
+name = "databasecraft-app"
+version = "0.1.0"
+edition = "2021"
+description = "L3 Native Desktop UI application for DatabaseCraft (ArtCraft egui/eframe pattern)"
+license = "MIT OR Apache-2.0"
+
+[[bin]]
+name = "databasecraft"
+path = "src/main.rs"
+
+[dependencies]
+databasecraft-core = { path = "../databasecraft-core" }
+databasecraft-store = { path = "../databasecraft-store" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+clap = { workspace = true }
+tokio = { workspace = true }
+
+[lints]
+workspace = true

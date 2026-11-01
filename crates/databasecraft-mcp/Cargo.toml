@@ -1,0 +1,22 @@
+[package]
+name = "databasecraft-mcp"
+version = "0.1.0"
+edition = "2021"
+description = "L2 CLI-first binary and MCP stdio server for DatabaseCraft (ArtCraft pattern)"
+license = "MIT OR Apache-2.0"
+
+[[bin]]
+name = "databasecraft-cli"
+path = "src/main.rs"
+
+[dependencies]
+databasecraft-core = { path = "../databasecraft-core" }
+databasecraft-store = { path = "../databasecraft-store" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+clap = { workspace = true }
+tokio = { workspace = true }
+chrono = { workspace = true }
+
+[lints]
+workspace = true

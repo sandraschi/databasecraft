@@ -1,0 +1,484 @@
+//! L2 DatabaseCraft CLI and MCP Stdio Server.
+//!
+//! Stdout is 100% pure JSON-RPC in MCP mode. All diagnostics go to stderr.
+//! Both CLI subcommands and MCP tools dispatch identically through `databasecraft_core::dispatch`.
+#![deny(clippy::unwrap_used)]
+#![deny(clippy::expect_used)]
+#![deny(clippy::panic)]
+#![deny(clippy::unimplemented)]
+#![deny(clippy::todo)]
+
+use clap::{Parser, Subcommand};
+use databasecraft_core::{
+    dispatch, models::ExportTarget, Command, APP_NAME, APP_VERSION, CONTROL_PORT,
+};
+use databasecraft_store::DatabaseStore;
+use serde_json::{json, Value};
+use std::io::{BufRead, Write};
+use std::path::Path;
+use tokio::runtime::Runtime;
+
+#[derive(Parser)]
+#[command(
+    name = "databasecraft-cli",
+    about = "Pure-Rust Relational Database engine for the ArtCraft suite (CLI-first, MCP over stdio)",
+    version = APP_VERSION
+)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Show DatabaseCraft status, tables count, and registered control port
+    Status {
+        #[arg(long)]
+        db: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Execute a SQL query and display or return JSON rows
+    Query {
+        #[arg(long)]
+        sql: String,
+        #[arg(long)]
+        db: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Inspect database schema (all tables or a single table)
+    SchemaInspect {
+        #[arg(long)]
+        table: Option<String>,
+        #[arg(long)]
+        db: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Insert a record from a JSON string into a table
+    RecordInsert {
+        #[arg(long)]
+        table: String,
+        #[arg(long)]
+        record: String,
+        #[arg(long)]
+        db: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Export relational query directly formatted for DesignCraft, DeckCraft, WordCraft, GridCraft, or PdfCraft
+    ExportMerge {
+        #[arg(long)]
+        query: String,
+        #[arg(long)]
+        target: String,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        out: Option<String>,
+        #[arg(long)]
+        db: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Seed a deterministic demo dataset (ecommerce, film, kpi)
+    SeedDemo {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        db: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Launch the MCP (Model Context Protocol 2024-11-05) stdio server
+    Mcp {
+        #[arg(long)]
+        db: Option<String>,
+    },
+}
+
+fn open_store(db_path: Option<&str>) -> DatabaseStore {
+    match db_path {
+        Some(p) => match DatabaseStore::open(Path::new(p)) {
+            Ok(store) => store,
+            Err(e) => {
+                eprintln!("[databasecraft] Failed to open database at '{p}': {e}. Falling back to in-memory.");
+                DatabaseStore::open_in_memory().unwrap_or_else(|_| {
+                    eprintln!("[databasecraft] Fatal: could not initialize store.");
+                    std::process::exit(1);
+                })
+            }
+        },
+        None => DatabaseStore::open_in_memory().unwrap_or_else(|_| {
+            eprintln!("[databasecraft] Fatal: could not initialize in-memory store.");
+            std::process::exit(1);
+        }),
+    }
+}
+
+fn parse_target(s: &str) -> Option<ExportTarget> {
+    match s.to_ascii_lowercase().as_str() {
+        "design" | "designcraft" => Some(ExportTarget::DesignCraft),
+        "deck" | "deckcraft" => Some(ExportTarget::DeckCraft),
+        "word" | "wordcraft" => Some(ExportTarget::WordCraft),
+        "grid" | "gridcraft" => Some(ExportTarget::GridCraft),
+        "pdf" | "pdfcraft" => Some(ExportTarget::PdfCraft),
+        _ => None,
+    }
+}
+
+fn main() {
+    let cli = Cli::parse();
+    let rt = match Runtime::new() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("[databasecraft] Failed to start tokio runtime: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    match cli.command {
+        Commands::Status { db, json } => {
+            let store = open_store(db.as_deref());
+            let res = rt.block_on(dispatch(Command::Status, &store));
+            if json {
+                println!("{res}");
+            } else {
+                println!("DatabaseCraft v{APP_VERSION} (Control Port: {CONTROL_PORT})");
+                println!("Status: ready");
+                println!("Tables count: {}", res["tables_count"]);
+                if let Some(tables) = res["tables"].as_array() {
+                    for t in tables {
+                        println!(" - {}", t.as_str().unwrap_or(""));
+                    }
+                }
+            }
+        }
+        Commands::Query { sql, db, json } => {
+            let store = open_store(db.as_deref());
+            let res = rt.block_on(dispatch(Command::Query { sql }, &store));
+            if json {
+                println!("{res}");
+            } else if res["success"] == true {
+                println!("Rows: {}", res["row_count"]);
+                println!("{res}");
+            } else {
+                eprintln!("Error: {}", res["error"]);
+            }
+        }
+        Commands::SchemaInspect { table, db, json } => {
+            let store = open_store(db.as_deref());
+            let res = rt.block_on(dispatch(Command::SchemaInspect { table }, &store));
+            if json {
+                println!("{res}");
+            } else {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&res).unwrap_or_else(|_| res.to_string())
+                );
+            }
+        }
+        Commands::RecordInsert {
+            table,
+            record,
+            db,
+            json: _,
+        } => {
+            let store = open_store(db.as_deref());
+            let rec_val: Value = match serde_json::from_str(&record) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("Invalid record JSON: {e}");
+                    return;
+                }
+            };
+            let res = rt.block_on(dispatch(
+                Command::RecordInsert {
+                    table,
+                    record: rec_val,
+                },
+                &store,
+            ));
+            println!("{res}");
+        }
+        Commands::ExportMerge {
+            query,
+            target,
+            name,
+            out,
+            db,
+            json: _,
+        } => {
+            let store = open_store(db.as_deref());
+            let parsed = match parse_target(&target) {
+                Some(t) => t,
+                None => {
+                    eprintln!("Unknown export target '{target}'. Valid targets: designcraft, deckcraft, wordcraft, gridcraft, pdfcraft");
+                    return;
+                }
+            };
+            let res = rt.block_on(dispatch(
+                Command::ExportMerge {
+                    query,
+                    target: parsed,
+                    name,
+                },
+                &store,
+            ));
+            if let Some(out_path) = out {
+                let formatted =
+                    serde_json::to_string_pretty(&res).unwrap_or_else(|_| "{}".to_string());
+                if let Err(e) = std::fs::write(&out_path, formatted) {
+                    eprintln!("Failed to write export to {out_path}: {e}");
+                } else {
+                    println!("Export written successfully to {out_path}");
+                }
+            } else {
+                println!("{res}");
+            }
+        }
+        Commands::SeedDemo { name, db, json } => {
+            let store = open_store(db.as_deref());
+            let res = rt.block_on(dispatch(Command::SeedDemo { name }, &store));
+            if json {
+                println!("{res}");
+            } else {
+                println!("Seeded dataset: {}", res["seeded"]);
+                println!("Tables now available: {}", res["tables"]);
+            }
+        }
+        Commands::Mcp { db } => {
+            let store = open_store(db.as_deref());
+            run_mcp_stdio(&rt, &store);
+        }
+    }
+}
+
+pub fn tools_list() -> Value {
+    json!([
+        {
+            "name": "db_status",
+            "description": "Get DatabaseCraft status, table count, and registered control port 14113",
+            "inputSchema": {
+                "type": "object",
+                "properties": {}
+            }
+        },
+        {
+            "name": "db_query",
+            "description": "Execute a SQL query against the DatabaseCraft store and retrieve structured records",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "sql": { "type": "string", "description": "SQL statement (SELECT, INSERT, UPDATE, etc.)" }
+                },
+                "required": ["sql"]
+            }
+        },
+        {
+            "name": "db_schema_inspect",
+            "description": "Inspect database schema, foreign keys, and column definitions across all tables or a specific table",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "table": { "type": "string", "description": "Optional table name. Omit to inspect entire database schema" }
+                }
+            }
+        },
+        {
+            "name": "db_record_insert",
+            "description": "Insert a structured JSON record into a table",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "table": { "type": "string", "description": "Target table name" },
+                    "record": { "type": "object", "description": "Key-value mapping of column values" }
+                },
+                "required": ["table", "record"]
+            }
+        },
+        {
+            "name": "db_export_merge",
+            "description": "Query database and format rows for another Craft family member (designcraft, deckcraft, wordcraft, gridcraft, pdfcraft)",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "SQL query producing records to format" },
+                    "target": { "type": "string", "description": "Target craft: designcraft, deckcraft, wordcraft, gridcraft, or pdfcraft" },
+                    "name": { "type": "string", "description": "Dataset or document title identifier" }
+                },
+                "required": ["query", "target"]
+            }
+        },
+        {
+            "name": "db_seed_demo",
+            "description": "Seed deterministic demo dataset (ecommerce, film, kpi) for testing multi-app flows",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "Demo dataset name: ecommerce, film, or kpi" }
+                },
+                "required": ["name"]
+            }
+        }
+    ])
+}
+
+pub fn call_tool(rt: &Runtime, store: &DatabaseStore, name: &str, args: &Value) -> Value {
+    match name {
+        "db_status" => rt.block_on(dispatch(Command::Status, store)),
+        "db_query" => {
+            let sql = args["sql"].as_str().unwrap_or("").to_string();
+            rt.block_on(dispatch(Command::Query { sql }, store))
+        }
+        "db_schema_inspect" => {
+            let table = args["table"].as_str().map(|s| s.to_string());
+            rt.block_on(dispatch(Command::SchemaInspect { table }, store))
+        }
+        "db_record_insert" => {
+            let table = args["table"].as_str().unwrap_or("").to_string();
+            let record = args["record"].clone();
+            rt.block_on(dispatch(Command::RecordInsert { table, record }, store))
+        }
+        "db_export_merge" => {
+            let query = args["query"].as_str().unwrap_or("").to_string();
+            let target_str = args["target"].as_str().unwrap_or("");
+            let name = args["name"].as_str().map(|s| s.to_string());
+            match parse_target(target_str) {
+                Some(target) => rt.block_on(dispatch(
+                    Command::ExportMerge {
+                        query,
+                        target,
+                        name,
+                    },
+                    store,
+                )),
+                None => {
+                    json!({ "success": false, "error": format!("Invalid export target '{target_str}'") })
+                }
+            }
+        }
+        "db_seed_demo" => {
+            let name = args["name"].as_str().unwrap_or("").to_string();
+            rt.block_on(dispatch(Command::SeedDemo { name }, store))
+        }
+        unknown => json!({ "success": false, "error": format!("Unknown tool '{unknown}'") }),
+    }
+}
+
+/// Hand-rolled MCP 2024-11-05 line-delimited stdio framing loop.
+/// Stdio invariant: stdout is 100% JSON-RPC. Diagnostics go to stderr.
+fn run_mcp_stdio(rt: &Runtime, store: &DatabaseStore) {
+    eprintln!("[databasecraft-mcp] Starting MCP server stdio loop (MCP 2024-11-05)");
+    let stdin = std::io::stdin();
+    let mut stdout = std::io::stdout();
+
+    for line in stdin.lock().lines() {
+        let text = match line {
+            Ok(t) => t,
+            Err(_) => break,
+        };
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let req: Value = match serde_json::from_str(trimmed) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("[databasecraft-mcp] JSON parse error: {e}");
+                continue;
+            }
+        };
+
+        let method = req["method"].as_str().unwrap_or("");
+        let id = req.get("id").cloned();
+
+        let response = match method {
+            "initialize" => {
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {
+                            "tools": { "listChanged": false }
+                        },
+                        "serverInfo": {
+                            "name": APP_NAME,
+                            "version": APP_VERSION
+                        }
+                    }
+                })
+            }
+            "notifications/initialized" => {
+                // Client acknowledgment notification: no response required
+                continue;
+            }
+            "ping" => {
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {}
+                })
+            }
+            "tools/list" => {
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {
+                        "tools": tools_list()
+                    }
+                })
+            }
+            "tools/call" => {
+                let params = req.get("params").cloned().unwrap_or(Value::Null);
+                let tool_name = params["name"].as_str().unwrap_or("");
+                let args = params.get("arguments").cloned().unwrap_or(json!({}));
+                let tool_res = call_tool(rt, store, tool_name, &args);
+
+                let is_error = tool_res
+                    .get("success")
+                    .and_then(|v| v.as_bool())
+                    .map(|s| !s)
+                    .unwrap_or(false);
+
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": tool_res.to_string()
+                            }
+                        ],
+                        "isError": is_error
+                    }
+                })
+            }
+            _ => {
+                if id.is_some() {
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": {
+                            "code": -32601,
+                            "message": format!("Method not found: {method}")
+                        }
+                    })
+                } else {
+                    continue;
+                }
+            }
+        };
+
+        let json_line = response.to_string();
+        if let Err(e) = writeln!(stdout, "{json_line}") {
+            eprintln!("[databasecraft-mcp] stdout write error: {e}");
+            break;
+        }
+        let _ = stdout.flush();
+    }
+}
