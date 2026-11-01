@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.0] - 2026-11-01
+
+### Added
+- **Craft Two-Plane Live Control Architecture**:
+  - **Plane 1 (In-Process Headless MCP)**: Default `databasecraft-cli mcp` operates as a stand-alone JSON-RPC stdio server over direct SQLite storage.
+  - **Plane 2 (Live GUI Attachment via TCP)**: `databasecraft.exe` launches an asynchronous `tokio` TCP control listener on `127.0.0.1:14113`. `databasecraft-cli mcp --attach 14113` bridges external agent stdio into the live GUI runtime.
+- **Craft Command Bus Registry & Introspection**:
+  - Implemented `databasecraft-cli commands [--json]` displaying all 15 registered bus commands, IDs, human-readable labels, and operational descriptions.
+  - Implemented `databasecraft-cli describe <command_id> [--json]` providing machine-readable parameter signatures and parameter type definitions.
+- **Automated Regression & Parity Tests**:
+  - Added `test_command_registry_and_describe` in `databasecraft-core` asserting signature integrity across all 15 commands.
+  - Added `test_control_channel_tcp_loopback` in `databasecraft-app` asserting live JSON-RPC `initialize` and `tools/call` over loopback TCP sockets.
+- **Network Stack Capabilities**:
+  - Configured `tokio` with `net` and `io-util` features for clean async TCP transport.
+
 ## [0.3.0] - 2026-11-01
 
 ### Added

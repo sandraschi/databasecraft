@@ -82,7 +82,8 @@ Following the **ArtCraft Containment Harness** ([`CONTAINMENT_AND_CRATES.md`](..
 | **F13** | Hybrid RAG Facility | Combines dense vector search with sparse FTS5 using Reciprocal Rank Fusion (RRF). | ✅ Complete |
 | **F14** | Headless `--smoke` CI | Instantaneous executable verification without launching a GPU window. | ✅ Complete |
 | **F15** | Control Port `14113` | Registered live cross-craft orchestration channel. | ✅ Complete |
-| **F16** | 5-View `egui` Desktop UI | Virtualized grid, form cards, ERD node canvas, SQL console, and media gallery. | ⏳ Tier 4 (v0.3) |
+| **F16** | 5-View `egui` Desktop UI | Virtualized grid, form cards, ERD node canvas, SQL console, and media gallery. | ✅ Complete |
+| **F17** | Two-Plane Control Architecture | Live TCP listener on port `14113` (Plane 2) + command registry introspection (`commands`, `describe`). | ✅ Complete |
 
 ---
 

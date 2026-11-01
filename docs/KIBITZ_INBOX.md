@@ -49,7 +49,7 @@ Each entry moves through five states:
 ### KBZ-004: Live Document Push over Control Port `14113`
 * **Date**: 2026-11-01
 * **Source**: Multi-App Workflow Testing
-* **Status**: `[ACCEPTED]` (Target: v0.3)
+* **Status**: `[IMPLEMENTED]` (v0.4.0)
 * **Observation**: In Flow 13 (Product Catalog), DesignCraft currently pulls exported JSON files. If a user edits a price in DatabaseCraft while DesignCraft is open, the spread does not refresh automatically.
 * **Advice**: Expose a lightweight event bus over port `14113` broadcasting `{"event": "table_mutated", "table": "products"}` so attached apps can trigger live canvas re-renders without polling.
 

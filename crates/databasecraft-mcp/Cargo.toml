@@ -1,6 +1,6 @@
 [package]
 name = "databasecraft-mcp"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 description = "L2 CLI-first binary and MCP stdio server for DatabaseCraft (ArtCraft pattern)"
 license = "MIT OR Apache-2.0"
