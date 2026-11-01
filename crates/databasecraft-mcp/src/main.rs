@@ -10,7 +10,8 @@
 
 use clap::{Parser, Subcommand};
 use databasecraft_core::{
-    dispatch, models::ExportTarget, Command, APP_NAME, APP_VERSION, CONTROL_PORT,
+    command_registry, describe_command, dispatch, models::ExportTarget, Command, APP_NAME,
+    APP_VERSION, CONTROL_PORT,
 };
 use databasecraft_store::DatabaseStore;
 use serde_json::{json, Value};
@@ -91,10 +92,25 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
-    /// Launch the MCP (Model Context Protocol 2024-11-05) stdio server
+    /// List all registered commands in the Craft command bus (id, label, signature)
+    #[command(name = "commands")]
+    Registry {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Inspect parameter signature and description for a specific command ID
+    Describe {
+        command_id: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Launch the MCP (Model Context Protocol 2024-11-05) stdio server (Plane 1 headless or Plane 2 --attach)
     Mcp {
         #[arg(long)]
         db: Option<String>,
+        /// Attach live to a running DatabaseCraft GUI on control port (Plane 2)
+        #[arg(long)]
+        attach: Option<u16>,
     },
 }
 
@@ -248,9 +264,51 @@ fn main() {
                 println!("Tables now available: {}", res["tables"]);
             }
         }
-        Commands::Mcp { db } => {
-            let store = open_store(db.as_deref());
-            run_mcp_stdio(&rt, &store);
+        Commands::Registry { json } => {
+            let registry = command_registry();
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&registry).unwrap_or_else(|_| "[]".to_string())
+                );
+            } else {
+                println!(
+                    "DatabaseCraft Command Bus Registry ({} commands):",
+                    registry.len()
+                );
+                for cmd in registry {
+                    println!("  {:20} - {}", cmd.id, cmd.description);
+                }
+            }
+        }
+        Commands::Describe { command_id, json } => match describe_command(&command_id) {
+            Some(desc) => {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&desc).unwrap_or_else(|_| "{}".to_string())
+                    );
+                } else {
+                    println!("Command: {}", desc.id);
+                    println!("Label:   {}", desc.label);
+                    println!("Details: {}", desc.description);
+                    println!("Params:  {}", desc.params);
+                }
+            }
+            None => {
+                eprintln!(
+                    "Unknown command ID: '{command_id}'. Run 'databasecraft-cli commands' to list all commands."
+                );
+                std::process::exit(1);
+            }
+        },
+        Commands::Mcp { db, attach } => {
+            if let Some(port) = attach {
+                run_mcp_attach(port);
+            } else {
+                let store = open_store(db.as_deref());
+                run_mcp_stdio(&rt, &store);
+            }
         }
     }
 }
@@ -556,6 +614,62 @@ fn run_mcp_stdio(rt: &Runtime, store: &DatabaseStore) {
 
         let json_line = response.to_string();
         if let Err(e) = writeln!(stdout, "{json_line}") {
+            eprintln!("[databasecraft-mcp] stdout write error: {e}");
+            break;
+        }
+        let _ = stdout.flush();
+    }
+}
+
+/// Attach over TCP to a live DatabaseCraft GUI on control port (Plane 2).
+/// Relays MCP stdio to/from the live app's control socket.
+fn run_mcp_attach(port: u16) {
+    eprintln!(
+        "[databasecraft-mcp] Attaching live to DatabaseCraft on control port {port} (Plane 2)..."
+    );
+    let mut tcp_stream = match std::net::TcpStream::connect(("127.0.0.1", port)) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!(
+                "[databasecraft-mcp] Failed to connect to control port {port}: {e}. Ensure databasecraft.exe --control {port} is running."
+            );
+            std::process::exit(1);
+        }
+    };
+    eprintln!("[databasecraft-mcp] Attached to live control channel. Relaying MCP stdio.");
+
+    let stdin = std::io::stdin();
+    let mut stdout = std::io::stdout();
+    let mut tcp_reader = std::io::BufReader::new(match tcp_stream.try_clone() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("[databasecraft-mcp] Socket clone error: {e}");
+            std::process::exit(1);
+        }
+    });
+
+    for line in stdin.lock().lines() {
+        let text = match line {
+            Ok(t) => t,
+            Err(_) => break,
+        };
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if let Err(e) = writeln!(tcp_stream, "{trimmed}") {
+            eprintln!("[databasecraft-mcp] Failed to send to control port: {e}");
+            break;
+        }
+        let _ = tcp_stream.flush();
+
+        let mut response_line = String::new();
+        if let Err(e) = tcp_reader.read_line(&mut response_line) {
+            eprintln!("[databasecraft-mcp] Failed to read from control port: {e}");
+            break;
+        }
+        if let Err(e) = write!(stdout, "{response_line}") {
             eprintln!("[databasecraft-mcp] stdout write error: {e}");
             break;
         }

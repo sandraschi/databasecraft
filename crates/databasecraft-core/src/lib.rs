@@ -25,7 +25,7 @@ use serde_json::{json, Value};
 /// Standard registered control port for DatabaseCraft in the ArtCraft family.
 pub const CONTROL_PORT: u16 = 14113;
 pub const APP_NAME: &str = "databasecraft";
-pub const APP_VERSION: &str = "0.3.0";
+pub const APP_VERSION: &str = "0.4.0";
 
 /// Unique string IDs exposed over MCP `tools/list` and the CLI.
 pub const CMD_STATUS: &str = "status";
@@ -401,4 +401,114 @@ fn execute_dispatch(cmd: Command, store: &DatabaseStore) -> Result<Value, Databa
             }))
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CommandDescriptor {
+    pub id: String,
+    pub label: String,
+    pub description: String,
+    pub params: Value,
+}
+
+/// The machine-readable Craft Command Registry.
+/// Provides introspection for `<craft>-cli commands --json`.
+pub fn command_registry() -> Vec<CommandDescriptor> {
+    vec![
+        CommandDescriptor {
+            id: CMD_STATUS.to_string(),
+            label: "App Status".to_string(),
+            description: "Show DatabaseCraft status, tables count, and registered control port 14113".to_string(),
+            params: json!({}),
+        },
+        CommandDescriptor {
+            id: CMD_QUERY.to_string(),
+            label: "Execute SQL".to_string(),
+            description: "Run SQL query against SQLite/OLTP and return structured rows and columns".to_string(),
+            params: json!({ "sql": "string" }),
+        },
+        CommandDescriptor {
+            id: CMD_SCHEMA_INSPECT.to_string(),
+            label: "Inspect Schema".to_string(),
+            description: "Inspect table columns, data types, primary keys, and foreign keys".to_string(),
+            params: json!({ "table": "string (optional)" }),
+        },
+        CommandDescriptor {
+            id: CMD_SCHEMA_CREATE.to_string(),
+            label: "Create Table".to_string(),
+            description: "Create new relational table with typed columns and constraints".to_string(),
+            params: json!({ "table_def": "object" }),
+        },
+        CommandDescriptor {
+            id: CMD_RECORD_INSERT.to_string(),
+            label: "Insert Record".to_string(),
+            description: "Insert JSON record object into specified table".to_string(),
+            params: json!({ "table": "string", "record": "object" }),
+        },
+        CommandDescriptor {
+            id: CMD_RECORD_UPDATE.to_string(),
+            label: "Update Record".to_string(),
+            description: "Update columns for record matching ID in specified table".to_string(),
+            params: json!({ "table": "string", "id": "number", "changes": "object" }),
+        },
+        CommandDescriptor {
+            id: CMD_RECORD_DELETE.to_string(),
+            label: "Delete Record".to_string(),
+            description: "Delete record matching ID from specified table".to_string(),
+            params: json!({ "table": "string", "id": "number" }),
+        },
+        CommandDescriptor {
+            id: CMD_EXPORT_MERGE.to_string(),
+            label: "Export Cross-Craft Merge".to_string(),
+            description: "Format SQL query rows for DesignCraft, DeckCraft, WordCraft, GridCraft, or PdfCraft".to_string(),
+            params: json!({ "query": "string", "target": "string (designcraft|deckcraft|wordcraft|gridcraft|pdfcraft)", "name": "string (optional)" }),
+        },
+        CommandDescriptor {
+            id: CMD_SEED_DEMO.to_string(),
+            label: "Seed Deterministic Demo".to_string(),
+            description: "Populate deterministic dataset: ecommerce, film, or kpi".to_string(),
+            params: json!({ "name": "string (ecommerce|film|kpi)" }),
+        },
+        CommandDescriptor {
+            id: CMD_VECTOR_INIT.to_string(),
+            label: "Initialize Vector Table".to_string(),
+            description: "Create vector table for dense embeddings with specified dimension".to_string(),
+            params: json!({ "table": "string", "dimensions": "number" }),
+        },
+        CommandDescriptor {
+            id: CMD_VECTOR_INSERT.to_string(),
+            label: "Insert Vector Embedding".to_string(),
+            description: "Store dense float vector with ID and associated JSON metadata".to_string(),
+            params: json!({ "table": "string", "id": "number", "vector": "array of numbers", "metadata": "object" }),
+        },
+        CommandDescriptor {
+            id: CMD_VECTOR_SEARCH.to_string(),
+            label: "Vector Similarity Search".to_string(),
+            description: "Dense vector nearest neighbor search using Cosine, DotProduct, or L2 metric".to_string(),
+            params: json!({ "table": "string", "vector": "array of numbers", "metric": "string (cosine|dot_product|l2)", "top_k": "number" }),
+        },
+        CommandDescriptor {
+            id: CMD_FTS_INIT.to_string(),
+            label: "Initialize FTS5 Full-Text Table".to_string(),
+            description: "Create SQLite FTS5 virtual table for sparse keyword indexing".to_string(),
+            params: json!({ "table": "string", "columns": "array of strings" }),
+        },
+        CommandDescriptor {
+            id: CMD_FTS_SEARCH.to_string(),
+            label: "FTS5 BM25 Search".to_string(),
+            description: "Execute sparse BM25 text query returning ranked matching rows".to_string(),
+            params: json!({ "table": "string", "query": "string", "top_k": "number" }),
+        },
+        CommandDescriptor {
+            id: CMD_HYBRID_SEARCH.to_string(),
+            label: "Hybrid RAG Search".to_string(),
+            description: "Execute dense vector + sparse FTS5 search with Reciprocal Rank Fusion".to_string(),
+            params: json!({ "vector_table": "string", "fts_table": "string", "query_text": "string", "query_vector": "array of numbers", "top_k": "number" }),
+        },
+    ]
+}
+
+/// Retrieve the descriptor for a specific command ID.
+pub fn describe_command(id: &str) -> Option<CommandDescriptor> {
+    command_registry().into_iter().find(|cmd| cmd.id == id)
 }

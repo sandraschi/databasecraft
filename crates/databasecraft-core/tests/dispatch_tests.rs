@@ -235,3 +235,33 @@ async fn test_hybrid_rag_search() -> Result<(), Box<dyn std::error::Error>> {
     assert!(top["rrf_score"].as_f64().unwrap_or(0.0) > 0.0);
     Ok(())
 }
+
+#[tokio::test]
+async fn test_command_registry_and_describe() -> Result<(), Box<dyn std::error::Error>> {
+    let registry = databasecraft_core::command_registry();
+    assert_eq!(registry.len(), 15);
+
+    for cmd in &registry {
+        assert!(!cmd.id.is_empty());
+        assert!(!cmd.label.is_empty());
+        assert!(!cmd.description.is_empty());
+    }
+
+    let status_desc = databasecraft_core::describe_command("status").ok_or("missing status")?;
+    assert_eq!(status_desc.id, "status");
+    assert_eq!(status_desc.label, "App Status");
+
+    let query_desc = databasecraft_core::describe_command("db.query").ok_or("missing db.query")?;
+    assert_eq!(query_desc.id, "db.query");
+
+    let export_desc = databasecraft_core::describe_command("db.export_merge").ok_or("missing db.export_merge")?;
+    assert_eq!(export_desc.id, "db.export_merge");
+
+    let hybrid_desc = databasecraft_core::describe_command("rag.hybrid_search").ok_or("missing rag.hybrid_search")?;
+    assert_eq!(hybrid_desc.id, "rag.hybrid_search");
+
+    let unknown = databasecraft_core::describe_command("nonexistent_command");
+    assert!(unknown.is_none());
+
+    Ok(())
+}
