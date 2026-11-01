@@ -10,11 +10,15 @@
 #![deny(clippy::unimplemented)]
 #![deny(clippy::todo)]
 
+mod gui;
+
 use clap::Parser;
 use databasecraft_core::{dispatch, Command, APP_VERSION, CONTROL_PORT};
 use databasecraft_store::DatabaseStore;
+use eframe::egui;
 use serde_json::Value;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::runtime::Runtime;
 
 #[derive(Parser, Debug)]
@@ -100,12 +104,31 @@ fn main() {
 
     println!("============================================================");
     println!("DatabaseCraft v{APP_VERSION} (ArtCraft Suite)");
-    println!("Control Port: {} | State: Initialized", args.control);
-    println!("Run with --smoke for headless CI test.");
+    println!(
+        "Control Port: {} | Launching egui native GUI...",
+        args.control
+    );
     println!("============================================================");
 
-    let status = rt.block_on(app_state.execute_command(Command::Status));
-    println!("Database status: {}", status);
+    let native_options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_title(format!("DatabaseCraft v{APP_VERSION}"))
+            .with_inner_size([1120.0, 740.0])
+            .with_min_inner_size([720.0, 480.0]),
+        ..Default::default()
+    };
+
+    let rt_arc = Arc::new(rt);
+    let store_arc = Arc::new(app_state.store);
+
+    let res = eframe::run_native(
+        "DatabaseCraft",
+        native_options,
+        Box::new(move |_cc| Ok(Box::new(gui::DatabaseCraftGui::new(store_arc, rt_arc)))),
+    );
+    if let Err(e) = res {
+        eprintln!("[databasecraft] eframe runtime error: {e}");
+    }
 }
 
 #[cfg(test)]
