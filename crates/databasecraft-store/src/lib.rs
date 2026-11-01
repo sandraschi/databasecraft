@@ -10,8 +10,8 @@
 pub mod vector;
 
 pub use vector::{
-    cosine_similarity, dot_product, l2_distance, pack_vector, unpack_vector, FtsMatch, HybridMatch,
-    VectorMatch, VectorMetric,
+    cosine_similarity, dot_product, generate_text_embedding, l2_distance, pack_vector,
+    unpack_vector, FtsMatch, HybridMatch, VectorMatch, VectorMetric,
 };
 
 use rusqlite::{types::ValueRef, Connection};
@@ -500,5 +500,35 @@ impl DatabaseStore {
         });
         hybrid_matches.truncate(top_k);
         Ok(hybrid_matches)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_text_embedding_properties() -> Result<(), Box<dyn std::error::Error>> {
+        let v1 = generate_text_embedding("wireless bluetooth headphones", 128);
+        assert_eq!(v1.len(), 128);
+
+        // Unit length check: norm ~ 1.0
+        let norm_sq: f32 = v1.iter().map(|&x| x * x).sum();
+        assert!((norm_sq.sqrt() - 1.0).abs() < 1e-4);
+
+        // Deterministic check
+        let v1_again = generate_text_embedding("wireless bluetooth headphones", 128);
+        assert_eq!(v1, v1_again);
+
+        // Semantic proximity: "wireless headphone" should have high cosine similarity with "wireless bluetooth headphones"
+        let v2 = generate_text_embedding("wireless headphone", 128);
+        let sim = cosine_similarity(&v1, &v2);
+        assert!(sim > 0.4);
+
+        // Empty string gives zero vector
+        let empty = generate_text_embedding("", 128);
+        assert!(empty.iter().all(|&x| x == 0.0));
+
+        Ok(())
     }
 }

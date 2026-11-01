@@ -107,3 +107,67 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
         dot / denom
     }
 }
+
+/// Generate a deterministic, unit-normalized semantic embedding vector from text.
+///
+/// Uses subword character n-gram feature projection (Count-Sketch random projection)
+/// to project arbitrary text into a dense vector space of specified dimensionality (e.g. 128 or 384).
+/// Completely offline, zero C++ or Python dependencies, and SIMD-friendly.
+pub fn generate_text_embedding(text: &str, dimensions: usize) -> Vec<f32> {
+    let dim = dimensions.max(1);
+    let mut vec = vec![0.0f32; dim];
+
+    let clean = text.trim().to_lowercase();
+    if clean.is_empty() {
+        return vec;
+    }
+
+    fn fnv1a_hash(bytes: &[u8]) -> u64 {
+        let mut hash = 0xcbf29ce484222325u64;
+        for &b in bytes {
+            hash ^= b as u64;
+            hash = hash.wrapping_mul(0x100000001b3u64);
+        }
+        hash
+    }
+
+    // 1. Process whole word tokens (weight = 2.0)
+    for word in clean.split_whitespace() {
+        let h = fnv1a_hash(word.as_bytes());
+        let idx = (h % (dim as u64)) as usize;
+        let sign = if (h >> 32) & 1 == 0 { 2.0f32 } else { -2.0f32 };
+        if let Some(slot) = vec.get_mut(idx) {
+            *slot += sign;
+        }
+
+        // 2. Character n-grams (3-grams and 4-grams, weight = 1.0)
+        let chars = word.chars().collect::<Vec<_>>();
+        for n in 3..=4 {
+            if chars.len() >= n {
+                for window in chars.windows(n) {
+                    let s: String = window.iter().collect();
+                    let gh = fnv1a_hash(s.as_bytes());
+                    let g_idx = (gh % (dim as u64)) as usize;
+                    let g_sign = if (gh >> 32) & 1 == 0 { 1.0f32 } else { -1.0f32 };
+                    if let Some(slot) = vec.get_mut(g_idx) {
+                        *slot += g_sign;
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Normalize to unit length (L2 norm = 1.0)
+    let mut sum_sq = 0.0f32;
+    for &val in &vec {
+        sum_sq += val * val;
+    }
+    let norm = sum_sq.sqrt();
+    if norm > f32::EPSILON {
+        for val in &mut vec {
+            *val /= norm;
+        }
+    }
+
+    vec
+}

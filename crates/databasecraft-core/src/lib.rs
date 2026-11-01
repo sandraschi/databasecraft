@@ -25,7 +25,7 @@ use serde_json::{json, Value};
 /// Standard registered control port for DatabaseCraft in the ArtCraft family.
 pub const CONTROL_PORT: u16 = 14113;
 pub const APP_NAME: &str = "databasecraft";
-pub const APP_VERSION: &str = "0.4.0";
+pub const APP_VERSION: &str = "0.5.0";
 
 /// Unique string IDs exposed over MCP `tools/list` and the CLI.
 pub const CMD_STATUS: &str = "status";
@@ -44,6 +44,8 @@ pub const CMD_VECTOR_SEARCH: &str = "rag.vector_search";
 pub const CMD_FTS_INIT: &str = "rag.fts_init";
 pub const CMD_FTS_SEARCH: &str = "rag.fts_search";
 pub const CMD_HYBRID_SEARCH: &str = "rag.hybrid_search";
+pub const CMD_RAG_EMBED: &str = "rag.embed_text";
+pub const CMD_RAG_ASK: &str = "rag.semantic_search";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "command", content = "params")]
@@ -112,6 +114,17 @@ pub enum Command {
         fts_table: String,
         query_text: String,
         query_vector: Vec<f32>,
+        top_k: Option<usize>,
+    },
+    RagEmbed {
+        text: String,
+        dimensions: Option<usize>,
+    },
+    RagAsk {
+        vector_table: String,
+        fts_table: Option<String>,
+        query: String,
+        dimensions: Option<usize>,
         top_k: Option<usize>,
     },
 }
@@ -400,6 +413,54 @@ fn execute_dispatch(cmd: Command, store: &DatabaseStore) -> Result<Value, Databa
                 "hits": hits,
             }))
         }
+        Command::RagEmbed { text, dimensions } => {
+            let dim = dimensions.unwrap_or(128);
+            let vec = databasecraft_store::generate_text_embedding(&text, dim);
+            Ok(json!({
+                "success": true,
+                "text": text,
+                "dimensions": dim,
+                "vector": vec,
+            }))
+        }
+        Command::RagAsk {
+            vector_table,
+            fts_table,
+            query,
+            dimensions,
+            top_k,
+        } => {
+            validate_identifier(&vector_table)?;
+            let dim = dimensions.unwrap_or(128);
+            let query_vec = databasecraft_store::generate_text_embedding(&query, dim);
+            let k = top_k.unwrap_or(10);
+
+            if let Some(fts) = fts_table {
+                validate_identifier(&fts)?;
+                let hits = store.hybrid_search(&vector_table, &fts, &query, &query_vec, k, 60.0)?;
+                Ok(json!({
+                    "success": true,
+                    "mode": "hybrid",
+                    "query": query,
+                    "count": hits.len(),
+                    "hits": hits,
+                }))
+            } else {
+                let hits = store.search_vector(
+                    &vector_table,
+                    &query_vec,
+                    databasecraft_store::VectorMetric::Cosine,
+                    k,
+                )?;
+                Ok(json!({
+                    "success": true,
+                    "mode": "vector",
+                    "query": query,
+                    "count": hits.len(),
+                    "hits": hits,
+                }))
+            }
+        }
     }
 }
 
@@ -504,6 +565,18 @@ pub fn command_registry() -> Vec<CommandDescriptor> {
             label: "Hybrid RAG Search".to_string(),
             description: "Execute dense vector + sparse FTS5 search with Reciprocal Rank Fusion".to_string(),
             params: json!({ "vector_table": "string", "fts_table": "string", "query_text": "string", "query_vector": "array of numbers", "top_k": "number" }),
+        },
+        CommandDescriptor {
+            id: CMD_RAG_EMBED.to_string(),
+            label: "Generate Text Embedding".to_string(),
+            description: "Deterministic in-process subword semantic vector projection for raw text".to_string(),
+            params: json!({ "text": "string", "dimensions": "number (optional, default 128)" }),
+        },
+        CommandDescriptor {
+            id: CMD_RAG_ASK.to_string(),
+            label: "Semantic Text Search".to_string(),
+            description: "High-level semantic text search executing in-process embedding + hybrid RRF or vector ranking".to_string(),
+            params: json!({ "vector_table": "string", "fts_table": "string (optional)", "query": "string", "dimensions": "number (optional)", "top_k": "number (optional)" }),
         },
     ]
 }

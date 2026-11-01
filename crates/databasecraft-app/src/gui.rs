@@ -31,6 +31,7 @@ pub struct DatabaseCraftGui {
     pub tables: Vec<String>,
     pub selected_table: Option<String>,
     pub table_rows: Option<Value>,
+    pub filter_text: String,
     pub sql_query: String,
     pub query_result: Option<Value>,
     pub rag_text: String,
@@ -60,6 +61,7 @@ impl DatabaseCraftGui {
             tables,
             selected_table: first_table.clone(),
             table_rows: None,
+            filter_text: String::new(),
             sql_query: "SELECT * FROM sqlite_master;".to_string(),
             query_result: None,
             rag_text: "Obsidian headphones".to_string(),
@@ -120,14 +122,38 @@ impl DatabaseCraftGui {
 
     pub fn run_rag_search(&mut self) {
         let text = self.rag_text.clone();
-        let res = self.runtime.block_on(dispatch(
-            Command::FtsSearch {
-                table: "products_fts".to_string(),
-                query: text,
-                top_k: Some(10),
-            },
-            &self.store,
-        ));
+        let vec_table = self.tables.iter().find(|t| t.ends_with("_vec")).cloned();
+        let fts_table = self.tables.iter().find(|t| t.ends_with("_fts")).cloned();
+
+        let res = if let Some(v_tbl) = vec_table {
+            self.runtime.block_on(dispatch(
+                Command::RagAsk {
+                    vector_table: v_tbl,
+                    fts_table,
+                    query: text,
+                    dimensions: Some(128),
+                    top_k: Some(10),
+                },
+                &self.store,
+            ))
+        } else if let Some(f_tbl) = fts_table {
+            self.runtime.block_on(dispatch(
+                Command::FtsSearch {
+                    table: f_tbl,
+                    query: text,
+                    top_k: Some(10),
+                },
+                &self.store,
+            ))
+        } else {
+            self.runtime.block_on(dispatch(
+                Command::RagEmbed {
+                    text,
+                    dimensions: Some(128),
+                },
+                &self.store,
+            ))
+        };
         self.rag_results = Some(res);
     }
 
@@ -280,16 +306,38 @@ impl eframe::App for DatabaseCraftGui {
         // 4. Central Workspace Area
         egui::CentralPanel::default().show(ui, |ui| match self.active_tab {
             ActiveTab::Tables => {
-                ui.heading(format!(
-                    "Table: {}",
-                    self.selected_table.as_deref().unwrap_or("None")
-                ));
+                ui.horizontal(|ui| {
+                    ui.heading(format!(
+                        "Table: {}",
+                        self.selected_table.as_deref().unwrap_or("None")
+                    ));
+                    ui.add_space(16.0);
+                    ui.label("Filter:");
+                    ui.text_edit_singleline(&mut self.filter_text);
+                });
                 ui.separator();
 
                 if let Some(ref res) = self.table_rows {
                     if let (Some(cols), Some(rows)) =
                         (res["columns"].as_array(), res["rows"].as_array())
                     {
+                        let filter_lower = self.filter_text.trim().to_lowercase();
+                        let filtered_rows: Vec<&Value> = if filter_lower.is_empty() {
+                            rows.iter().collect()
+                        } else {
+                            rows.iter()
+                                .filter(|r| {
+                                    r.as_array().is_some_and(|cells| {
+                                        cells.iter().any(|c| {
+                                            c.to_string().to_lowercase().contains(&filter_lower)
+                                        })
+                                    })
+                                })
+                                .collect()
+                        };
+
+                        ui.label(format!("Showing {} of {} rows", filtered_rows.len(), rows.len()));
+
                         egui::ScrollArea::both().show(ui, |ui| {
                             egui::Grid::new("table_grid").striped(true).show(ui, |ui| {
                                 for col in cols {
@@ -297,7 +345,7 @@ impl eframe::App for DatabaseCraftGui {
                                 }
                                 ui.end_row();
 
-                                for row in rows {
+                                for row in filtered_rows {
                                     if let Some(cells) = row.as_array() {
                                         for cell in cells {
                                             ui.label(cell.to_string());
@@ -339,28 +387,78 @@ impl eframe::App for DatabaseCraftGui {
                 }
             }
             ActiveTab::Schema => {
-                ui.heading("Database Schema Inspector");
+                ui.heading("Database Schema Inspector & Visual ERD");
                 ui.separator();
 
                 let full_schema = self.runtime.block_on(dispatch(
                     Command::SchemaInspect { table: None },
                     &self.store,
                 ));
+
                 egui::ScrollArea::both().show(ui, |ui| {
-                    ui.monospace(
-                        serde_json::to_string_pretty(&full_schema)
-                            .unwrap_or_else(|_| full_schema.to_string()),
-                    );
+                    if let Some(tables_arr) = full_schema["schema"]["tables"].as_array() {
+                        ui.horizontal_wrapped(|ui| {
+                            for table in tables_arr {
+                                egui::Frame::group(ui.style()).show(ui, |ui| {
+                                    ui.set_min_width(260.0);
+                                    let table_name = table["name"].as_str().unwrap_or("unnamed");
+                                    ui.horizontal(|ui| {
+                                        ui.strong(format!("📋 {table_name}"));
+                                        if let Some(cols) = table["columns"].as_array() {
+                                            ui.weak(format!("({} cols)", cols.len()));
+                                        }
+                                    });
+                                    ui.separator();
+
+                                    if let Some(cols) = table["columns"].as_array() {
+                                        for col in cols {
+                                            ui.horizontal(|ui| {
+                                                if col["pk"] == true {
+                                                    ui.colored_label(egui::Color32::from_rgb(16, 185, 129), "[PK]");
+                                                }
+                                                ui.label(col["name"].as_str().unwrap_or(""));
+                                                ui.weak(col["data_type"].as_str().unwrap_or(""));
+                                                if col["notnull"] == true {
+                                                    ui.weak("*");
+                                                }
+                                            });
+                                        }
+                                    }
+
+                                    if let Some(fks) = table["foreign_keys"].as_array() {
+                                        if !fks.is_empty() {
+                                            ui.separator();
+                                            for fk in fks {
+                                                let from = fk["from"].as_str().unwrap_or("");
+                                                let target_tbl = fk["table"].as_str().unwrap_or("");
+                                                let to = fk["to"].as_str().unwrap_or("");
+                                                ui.colored_label(
+                                                    egui::Color32::from_rgb(56, 189, 248),
+                                                    format!("↳ {from} → {target_tbl}({to})"),
+                                                );
+                                            }
+                                        }
+                                    }
+                                });
+                                ui.add_space(8.0);
+                            }
+                        });
+                    } else {
+                        ui.monospace(
+                            serde_json::to_string_pretty(&full_schema)
+                                .unwrap_or_else(|_| full_schema.to_string()),
+                        );
+                    }
                 });
             }
             ActiveTab::Rag => {
-                ui.heading("RAG & Semantic Retrieval Tester");
+                ui.heading("RAG & In-Process Semantic Retrieval Workbench");
                 ui.separator();
 
                 ui.horizontal(|ui| {
-                    ui.label("Search Query:");
+                    ui.label("Semantic Query:");
                     ui.text_edit_singleline(&mut self.rag_text);
-                    if ui.button("FTS Search").clicked() {
+                    if ui.button("⚡ Semantic Search").clicked() {
                         self.run_rag_search();
                     }
                 });
@@ -368,9 +466,29 @@ impl eframe::App for DatabaseCraftGui {
                 ui.separator();
                 if let Some(ref res) = self.rag_results {
                     egui::ScrollArea::both().show(ui, |ui| {
-                        ui.monospace(
-                            serde_json::to_string_pretty(res).unwrap_or_else(|_| res.to_string()),
-                        );
+                        if let Some(hits) = res["hits"].as_array() {
+                            ui.label(format!("Retrieved {} semantic hits (mode: {}):", hits.len(), res["mode"].as_str().unwrap_or("hybrid")));
+                            for (i, hit) in hits.iter().enumerate() {
+                                egui::Frame::group(ui.style()).show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.strong(format!("#{}: ID {}", i + 1, hit["id"]));
+                                        let score = hit.get("rrf_score")
+                                            .or_else(|| hit.get("score"))
+                                            .and_then(|v| v.as_f64())
+                                            .unwrap_or(0.0);
+                                        ui.colored_label(egui::Color32::from_rgb(16, 185, 129), format!("Score: {:.4}", score));
+                                    });
+                                    if !hit["metadata"].is_null() {
+                                        ui.monospace(serde_json::to_string_pretty(&hit["metadata"]).unwrap_or_default());
+                                    }
+                                });
+                                ui.add_space(4.0);
+                            }
+                        } else {
+                            ui.monospace(
+                                serde_json::to_string_pretty(res).unwrap_or_else(|_| res.to_string()),
+                            );
+                        }
                     });
                 }
             }

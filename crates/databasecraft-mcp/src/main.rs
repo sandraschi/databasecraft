@@ -92,6 +92,30 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Generate a deterministic semantic vector embedding from text
+    Embed {
+        text: String,
+        #[arg(long, default_value = "128")]
+        dimensions: usize,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Execute natural language semantic search (in-process embedding + vector / hybrid RRF)
+    SemanticSearch {
+        query: String,
+        #[arg(long)]
+        vector_table: String,
+        #[arg(long)]
+        fts_table: Option<String>,
+        #[arg(long, default_value = "128")]
+        dimensions: usize,
+        #[arg(long, default_value = "10")]
+        top_k: usize,
+        #[arg(long)]
+        db: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
     /// List all registered commands in the Craft command bus (id, label, signature)
     #[command(name = "commands")]
     Registry {
@@ -264,6 +288,76 @@ fn main() {
                 println!("Tables now available: {}", res["tables"]);
             }
         }
+        Commands::Embed {
+            text,
+            dimensions,
+            json,
+        } => {
+            let store = DatabaseStore::open_in_memory().unwrap_or_else(|_| {
+                eprintln!("Failed to open in-memory store");
+                std::process::exit(1);
+            });
+            let res = rt.block_on(dispatch(
+                Command::RagEmbed {
+                    text,
+                    dimensions: Some(dimensions),
+                },
+                &store,
+            ));
+            if json {
+                println!("{res}");
+            } else {
+                println!("Text:       {}", res["text"]);
+                println!("Dimensions: {}", res["dimensions"]);
+                if let Some(arr) = res["vector"].as_array() {
+                    let preview: Vec<String> = arr
+                        .iter()
+                        .take(5)
+                        .map(|v| format!("{:.4}", v.as_f64().unwrap_or(0.0)))
+                        .collect();
+                    println!("Vector:     [{}, ...] (length: {})", preview.join(", "), arr.len());
+                }
+            }
+        }
+        Commands::SemanticSearch {
+            query,
+            vector_table,
+            fts_table,
+            dimensions,
+            top_k,
+            db,
+            json,
+        } => {
+            let store = open_store(db.as_deref());
+            let res = rt.block_on(dispatch(
+                Command::RagAsk {
+                    vector_table,
+                    fts_table,
+                    query,
+                    dimensions: Some(dimensions),
+                    top_k: Some(top_k),
+                },
+                &store,
+            ));
+            if json {
+                println!("{res}");
+            } else {
+                println!("Semantic Search Query: {}", res["query"]);
+                println!("Mode:  {}", res["mode"]);
+                println!("Hits:  {}", res["count"]);
+                if let Some(hits) = res["hits"].as_array() {
+                    for (i, hit) in hits.iter().enumerate() {
+                        println!(
+                            "  #{}: ID={} | Score={:.4} | Meta={}",
+                            i + 1,
+                            hit["id"],
+                            hit.get("rrf_score").or_else(|| hit.get("score")).and_then(|v| v.as_f64()).unwrap_or(0.0),
+                            hit["metadata"]
+                        );
+                    }
+                }
+            }
+        }
         Commands::Registry { json } => {
             let registry = command_registry();
             if json {
@@ -408,6 +502,33 @@ pub fn tools_list() -> Value {
                 },
                 "required": ["vector_table", "fts_table", "query_text", "query_vector"]
             }
+        },
+        {
+            "name": "db_rag_embed",
+            "description": "Generate deterministic in-process semantic float vector embedding from text string",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "text": { "type": "string", "description": "Text to embed" },
+                    "dimensions": { "type": "integer", "description": "Vector dimensionality (default: 128)" }
+                },
+                "required": ["text"]
+            }
+        },
+        {
+            "name": "db_semantic_search",
+            "description": "Execute end-to-end semantic search using natural language text query (in-process embedding + hybrid RRF or vector search)",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "vector_table": { "type": "string", "description": "Dense vector table name" },
+                    "fts_table": { "type": "string", "description": "Optional FTS5 table name for hybrid search" },
+                    "query": { "type": "string", "description": "Natural language query text" },
+                    "dimensions": { "type": "integer", "description": "Vector dimensionality (default: 128)" },
+                    "top_k": { "type": "integer", "description": "Maximum number of results to return (default: 10)" }
+                },
+                "required": ["vector_table", "query"]
+            }
         }
     ])
 }
@@ -496,6 +617,28 @@ pub fn call_tool(rt: &Runtime, store: &DatabaseStore, name: &str, args: &Value) 
                     fts_table,
                     query_text,
                     query_vector,
+                    top_k,
+                },
+                store,
+            ))
+        }
+        "db_rag_embed" => {
+            let text = args["text"].as_str().unwrap_or("").to_string();
+            let dimensions = args["dimensions"].as_u64().map(|d| d as usize);
+            rt.block_on(dispatch(Command::RagEmbed { text, dimensions }, store))
+        }
+        "db_semantic_search" => {
+            let vector_table = args["vector_table"].as_str().unwrap_or("").to_string();
+            let fts_table = args["fts_table"].as_str().map(|s| s.to_string());
+            let query = args["query"].as_str().unwrap_or("").to_string();
+            let dimensions = args["dimensions"].as_u64().map(|d| d as usize);
+            let top_k = args["top_k"].as_u64().map(|k| k as usize);
+            rt.block_on(dispatch(
+                Command::RagAsk {
+                    vector_table,
+                    fts_table,
+                    query,
+                    dimensions,
                     top_k,
                 },
                 store,

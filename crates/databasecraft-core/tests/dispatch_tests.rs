@@ -239,7 +239,7 @@ async fn test_hybrid_rag_search() -> Result<(), Box<dyn std::error::Error>> {
 #[tokio::test]
 async fn test_command_registry_and_describe() -> Result<(), Box<dyn std::error::Error>> {
     let registry = databasecraft_core::command_registry();
-    assert_eq!(registry.len(), 15);
+    assert_eq!(registry.len(), 17);
 
     for cmd in &registry {
         assert!(!cmd.id.is_empty());
@@ -260,8 +260,88 @@ async fn test_command_registry_and_describe() -> Result<(), Box<dyn std::error::
     let hybrid_desc = databasecraft_core::describe_command("rag.hybrid_search").ok_or("missing rag.hybrid_search")?;
     assert_eq!(hybrid_desc.id, "rag.hybrid_search");
 
+    let embed_desc = databasecraft_core::describe_command("rag.embed_text").ok_or("missing rag.embed_text")?;
+    assert_eq!(embed_desc.id, "rag.embed_text");
+
+    let ask_desc = databasecraft_core::describe_command("rag.semantic_search").ok_or("missing rag.semantic_search")?;
+    assert_eq!(ask_desc.id, "rag.semantic_search");
+
     let unknown = databasecraft_core::describe_command("nonexistent_command");
     assert!(unknown.is_none());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_rag_embed_and_semantic_search() -> Result<(), Box<dyn std::error::Error>> {
+    let store = DatabaseStore::open_in_memory()?;
+
+    // 1. Test in-process embedding generation
+    let embed_res = dispatch(
+        Command::RagEmbed {
+            text: "wireless noise cancelling headphones".to_string(),
+            dimensions: Some(64),
+        },
+        &store,
+    )
+    .await;
+    assert_eq!(embed_res["success"], true);
+    assert_eq!(embed_res["dimensions"], 64);
+    let vec_arr = embed_res["vector"].as_array().ok_or("missing vector array")?;
+    assert_eq!(vec_arr.len(), 64);
+
+    // 2. Setup vector table and insert semantic record
+    dispatch(
+        Command::VectorInit {
+            table: "catalog_vec".to_string(),
+            dimensions: 64,
+        },
+        &store,
+    )
+    .await;
+
+    let headphones_vec = databasecraft_store::generate_text_embedding("wireless noise cancelling headphones", 64);
+    dispatch(
+        Command::VectorInsert {
+            table: "catalog_vec".to_string(),
+            id: 42,
+            vector: headphones_vec,
+            metadata: serde_json::json!({ "title": "Acoustic Pro 900", "price": 299.0 }),
+        },
+        &store,
+    )
+    .await;
+
+    // 3. Setup FTS5 table
+    dispatch(
+        Command::FtsInit {
+            table: "catalog_fts".to_string(),
+            columns: vec!["title".to_string()],
+        },
+        &store,
+    )
+    .await;
+    store.execute("INSERT INTO catalog_fts (rowid, title) VALUES (42, 'Acoustic Pro 900 Headphones');")?;
+
+    // 4. Test high-level semantic search using raw text query (no upstream float array required!)
+    let search_res = dispatch(
+        Command::RagAsk {
+            vector_table: "catalog_vec".to_string(),
+            fts_table: Some("catalog_fts".to_string()),
+            query: "wireless headphones".to_string(),
+            dimensions: Some(64),
+            top_k: Some(5),
+        },
+        &store,
+    )
+    .await;
+
+    assert_eq!(search_res["success"], true);
+    assert_eq!(search_res["mode"], "hybrid");
+    let hits = search_res["hits"].as_array().ok_or("missing hits")?;
+    let top = hits.first().ok_or("missing top hit")?;
+    assert_eq!(top["id"], 42);
+    assert_eq!(top["metadata"]["title"], "Acoustic Pro 900");
 
     Ok(())
 }
