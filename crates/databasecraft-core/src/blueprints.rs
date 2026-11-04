@@ -291,13 +291,20 @@ fn construct_small_business(
         CREATE INDEX IF NOT EXISTS idx_payments_invoice ON payments(invoice_id);
     ";
 
-    store.execute(ddl).map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+    store
+        .execute(ddl)
+        .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
 
     let mut fts_tables = Vec::new();
     if enable_search {
-        store.init_fts("products_fts", &["sku", "title", "category"])
+        store
+            .init_fts("products_fts", &["sku", "title", "category"])
             .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
-        store.init_fts("customers_fts", &["name", "company", "email", "billing_address"])
+        store
+            .init_fts(
+                "customers_fts",
+                &["name", "company", "email", "billing_address"],
+            )
             .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
         fts_tables.push("products_fts".to_string());
         fts_tables.push("customers_fts".to_string());
@@ -421,13 +428,17 @@ fn construct_club(
         CREATE INDEX IF NOT EXISTS idx_dues_payments_member ON dues_payments(member_id);
     ";
 
-    store.execute(ddl).map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+    store
+        .execute(ddl)
+        .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
 
     let mut fts_tables = Vec::new();
     if enable_search {
-        store.init_fts("members_fts", &["member_number", "full_name", "email"])
+        store
+            .init_fts("members_fts", &["member_number", "full_name", "email"])
             .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
-        store.init_fts("events_fts", &["title", "location", "description"])
+        store
+            .init_fts("events_fts", &["title", "location", "description"])
             .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
         fts_tables.push("members_fts".to_string());
         fts_tables.push("events_fts".to_string());
@@ -568,19 +579,40 @@ fn construct_surgery(
         CREATE INDEX IF NOT EXISTS idx_billing_records_patient ON billing_records(patient_id);
     ";
 
-    store.execute(ddl).map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+    store
+        .execute(ddl)
+        .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
 
     let mut fts_tables = Vec::new();
     if enable_search {
-        store.init_fts("patients_fts", &["record_number", "full_name", "allergies", "insurance_provider"])
+        store
+            .init_fts(
+                "patients_fts",
+                &[
+                    "record_number",
+                    "full_name",
+                    "allergies",
+                    "insurance_provider",
+                ],
+            )
             .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
-        store.init_fts("clinical_notes_fts", &["subjective_notes", "objective_findings", "assessment", "plan_treatment"])
+        store
+            .init_fts(
+                "clinical_notes_fts",
+                &[
+                    "subjective_notes",
+                    "objective_findings",
+                    "assessment",
+                    "plan_treatment",
+                ],
+            )
             .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
         fts_tables.push("patients_fts".to_string());
         fts_tables.push("clinical_notes_fts".to_string());
 
         // Also setup medical vector table for semantic symptom and treatment retrieval
-        store.init_vector_table("clinical_notes_vec", 128)
+        store
+            .init_vector_table("clinical_notes_vec", 128)
             .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
         fts_tables.push("clinical_notes_vec (Vector RAG)".to_string());
     }
@@ -687,11 +719,14 @@ fn construct_creative_agency(
         CREATE INDEX IF NOT EXISTS idx_time_logs_project ON time_logs(project_id);
     ";
 
-    store.execute(ddl).map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+    store
+        .execute(ddl)
+        .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
 
     let mut fts_tables = Vec::new();
     if enable_search {
-        store.init_fts("deliverables_fts", &["title", "craft_app", "asset_ref"])
+        store
+            .init_fts("deliverables_fts", &["title", "craft_app", "asset_ref"])
             .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
         fts_tables.push("deliverables_fts".to_string());
     }
@@ -811,13 +846,20 @@ fn construct_real_estate(
         CREATE INDEX IF NOT EXISTS idx_tickets_unit ON maintenance_tickets(unit_id);
     ";
 
-    store.execute(ddl).map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+    store
+        .execute(ddl)
+        .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
 
     let mut fts_tables = Vec::new();
     if enable_search {
-        store.init_fts("maintenance_tickets_fts", &["category", "title", "description"])
+        store
+            .init_fts(
+                "maintenance_tickets_fts",
+                &["category", "title", "description"],
+            )
             .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
-        store.init_fts("properties_fts", &["name", "address", "city"])
+        store
+            .init_fts("properties_fts", &["name", "address", "city"])
             .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
         fts_tables.push("maintenance_tickets_fts".to_string());
         fts_tables.push("properties_fts".to_string());
@@ -940,11 +982,17 @@ fn construct_field_service(
         CREATE INDEX IF NOT EXISTS idx_service_invoices_order ON service_invoices(work_order_id);
     ";
 
-    store.execute(ddl).map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+    store
+        .execute(ddl)
+        .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
 
     let mut fts_tables = Vec::new();
     if enable_search {
-        store.init_fts("work_orders_fts", &["order_number", "problem_description", "resolution_notes"])
+        store
+            .init_fts(
+                "work_orders_fts",
+                &["order_number", "problem_description", "resolution_notes"],
+            )
             .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
         fts_tables.push("work_orders_fts".to_string());
     }
@@ -1053,11 +1101,14 @@ fn construct_hospitality(
         CREATE INDEX IF NOT EXISTS idx_preferences_guest ON guest_preferences(guest_id);
     ";
 
-    store.execute(ddl).map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+    store
+        .execute(ddl)
+        .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
 
     let mut fts_tables = Vec::new();
     if enable_search {
-        store.init_fts("guests_fts", &["full_name", "phone", "email"])
+        store
+            .init_fts("guests_fts", &["full_name", "phone", "email"])
             .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
         fts_tables.push("guests_fts".to_string());
     }
@@ -1181,13 +1232,23 @@ fn construct_legal(
         CREATE INDEX IF NOT EXISTS idx_billable_matter ON billable_entries(matter_id);
     ";
 
-    store.execute(ddl).map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+    store
+        .execute(ddl)
+        .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
 
     let mut fts_tables = Vec::new();
     if enable_search {
-        store.init_fts("matters_fts", &["matter_number", "title", "practice_area", "lead_partner"])
+        store
+            .init_fts(
+                "matters_fts",
+                &["matter_number", "title", "practice_area", "lead_partner"],
+            )
             .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
-        store.init_fts("case_filings_fts", &["filing_title", "court_jurisdiction", "case_index_number"])
+        store
+            .init_fts(
+                "case_filings_fts",
+                &["filing_title", "court_jurisdiction", "case_index_number"],
+            )
             .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
         fts_tables.push("matters_fts".to_string());
         fts_tables.push("case_filings_fts".to_string());
@@ -1306,13 +1367,20 @@ fn construct_automotive(
         CREATE INDEX IF NOT EXISTS idx_inspections_vehicle ON inspections(vehicle_id);
     ";
 
-    store.execute(ddl).map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+    store
+        .execute(ddl)
+        .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
 
     let mut fts_tables = Vec::new();
     if enable_search {
-        store.init_fts("vehicles_fts", &["license_plate", "vin", "make", "model"])
+        store
+            .init_fts("vehicles_fts", &["license_plate", "vin", "make", "model"])
             .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
-        store.init_fts("job_cards_fts", &["job_number", "customer_reported_symptoms", "lead_mechanic"])
+        store
+            .init_fts(
+                "job_cards_fts",
+                &["job_number", "customer_reported_symptoms", "lead_mechanic"],
+            )
             .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
         fts_tables.push("vehicles_fts".to_string());
         fts_tables.push("job_cards_fts".to_string());
@@ -1436,13 +1504,17 @@ fn construct_education(
         CREATE INDEX IF NOT EXISTS idx_enrollments_student ON enrollments(student_id);
     ";
 
-    store.execute(ddl).map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+    store
+        .execute(ddl)
+        .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
 
     let mut fts_tables = Vec::new();
     if enable_search {
-        store.init_fts("courses_fts", &["code", "title", "department"])
+        store
+            .init_fts("courses_fts", &["code", "title", "department"])
             .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
-        store.init_fts("students_fts", &["full_name", "email", "guardian_name"])
+        store
+            .init_fts("students_fts", &["full_name", "email", "guardian_name"])
             .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
         fts_tables.push("courses_fts".to_string());
         fts_tables.push("students_fts".to_string());

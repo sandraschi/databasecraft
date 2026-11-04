@@ -254,16 +254,20 @@ async fn test_command_registry_and_describe() -> Result<(), Box<dyn std::error::
     let query_desc = databasecraft_core::describe_command("db.query").ok_or("missing db.query")?;
     assert_eq!(query_desc.id, "db.query");
 
-    let export_desc = databasecraft_core::describe_command("db.export_merge").ok_or("missing db.export_merge")?;
+    let export_desc =
+        databasecraft_core::describe_command("db.export_merge").ok_or("missing db.export_merge")?;
     assert_eq!(export_desc.id, "db.export_merge");
 
-    let hybrid_desc = databasecraft_core::describe_command("rag.hybrid_search").ok_or("missing rag.hybrid_search")?;
+    let hybrid_desc = databasecraft_core::describe_command("rag.hybrid_search")
+        .ok_or("missing rag.hybrid_search")?;
     assert_eq!(hybrid_desc.id, "rag.hybrid_search");
 
-    let embed_desc = databasecraft_core::describe_command("rag.embed_text").ok_or("missing rag.embed_text")?;
+    let embed_desc =
+        databasecraft_core::describe_command("rag.embed_text").ok_or("missing rag.embed_text")?;
     assert_eq!(embed_desc.id, "rag.embed_text");
 
-    let ask_desc = databasecraft_core::describe_command("rag.semantic_search").ok_or("missing rag.semantic_search")?;
+    let ask_desc = databasecraft_core::describe_command("rag.semantic_search")
+        .ok_or("missing rag.semantic_search")?;
     assert_eq!(ask_desc.id, "rag.semantic_search");
 
     let unknown = databasecraft_core::describe_command("nonexistent_command");
@@ -287,7 +291,9 @@ async fn test_rag_embed_and_semantic_search() -> Result<(), Box<dyn std::error::
     .await;
     assert_eq!(embed_res["success"], true);
     assert_eq!(embed_res["dimensions"], 64);
-    let vec_arr = embed_res["vector"].as_array().ok_or("missing vector array")?;
+    let vec_arr = embed_res["vector"]
+        .as_array()
+        .ok_or("missing vector array")?;
     assert_eq!(vec_arr.len(), 64);
 
     // 2. Setup vector table and insert semantic record
@@ -300,7 +306,8 @@ async fn test_rag_embed_and_semantic_search() -> Result<(), Box<dyn std::error::
     )
     .await;
 
-    let headphones_vec = databasecraft_store::generate_text_embedding("wireless noise cancelling headphones", 64);
+    let headphones_vec =
+        databasecraft_store::generate_text_embedding("wireless noise cancelling headphones", 64);
     dispatch(
         Command::VectorInsert {
             table: "catalog_vec".to_string(),
@@ -321,7 +328,9 @@ async fn test_rag_embed_and_semantic_search() -> Result<(), Box<dyn std::error::
         &store,
     )
     .await;
-    store.execute("INSERT INTO catalog_fts (rowid, title) VALUES (42, 'Acoustic Pro 900 Headphones');")?;
+    store.execute(
+        "INSERT INTO catalog_fts (rowid, title) VALUES (42, 'Acoustic Pro 900 Headphones');",
+    )?;
 
     // 4. Test high-level semantic search using raw text query (no upstream float array required!)
     let search_res = dispatch(
@@ -464,7 +473,8 @@ async fn test_ai_document_ingest_and_dedupe() -> Result<(), Box<dyn std::error::
 }
 
 #[tokio::test]
-async fn test_diagnose_and_repair_inconsistent_database() -> Result<(), Box<dyn std::error::Error>> {
+async fn test_diagnose_and_repair_inconsistent_database() -> Result<(), Box<dyn std::error::Error>>
+{
     let store = DatabaseStore::open_in_memory()?;
 
     // 1. Initially healthy
@@ -475,7 +485,7 @@ async fn test_diagnose_and_repair_inconsistent_database() -> Result<(), Box<dyn 
     // 2. Introduce deliberate relational inconsistency: disable FK temporarily to insert orphan
     store.execute("CREATE TABLE authors (id INTEGER PRIMARY KEY, name TEXT);")?;
     store.execute("CREATE TABLE books (id INTEGER PRIMARY KEY, title TEXT, author_id INTEGER REFERENCES authors(id));")?;
-    
+
     // Insert orphan book referencing non-existent author_id 999
     store.execute("PRAGMA foreign_keys = OFF;")?;
     store.execute("INSERT INTO books VALUES (1, 'Orphaned Novel', 999);")?;
@@ -485,7 +495,9 @@ async fn test_diagnose_and_repair_inconsistent_database() -> Result<(), Box<dyn 
     let diag2 = dispatch(Command::Diagnose, &store).await;
     assert_eq!(diag2["success"], true);
     assert_eq!(diag2["report"]["status"], "DEGRADED");
-    let violations = diag2["report"]["fk_violations"].as_array().ok_or("missing fk_violations")?;
+    let violations = diag2["report"]["fk_violations"]
+        .as_array()
+        .ok_or("missing fk_violations")?;
     assert_eq!(violations.len(), 1);
     assert_eq!(violations[0]["table"], "books");
     assert_eq!(violations[0]["target_table"], "authors");
@@ -517,7 +529,9 @@ async fn test_blueprint_constructor_facilities() -> Result<(), Box<dyn std::erro
     let store = DatabaseStore::open_in_memory()?;
     let list_res = dispatch(Command::ListBlueprints, &store).await;
     assert_eq!(list_res["success"], true);
-    let bps = list_res["blueprints"].as_array().ok_or("missing blueprints")?;
+    let bps = list_res["blueprints"]
+        .as_array()
+        .ok_or("missing blueprints")?;
     assert_eq!(bps.len(), 10);
 
     // 2. Construct Small Business
@@ -533,8 +547,18 @@ async fn test_blueprint_constructor_facilities() -> Result<(), Box<dyn std::erro
     .await;
     assert_eq!(biz_res["success"], true);
     assert_eq!(biz_res["construction"]["blueprint_id"], "small_business");
-    assert_eq!(biz_res["construction"]["tables_created"].as_array().map(|a| a.len()), Some(5));
-    assert!(biz_res["construction"]["sample_records_seeded"].as_u64().unwrap_or(0) > 0);
+    assert_eq!(
+        biz_res["construction"]["tables_created"]
+            .as_array()
+            .map(|a| a.len()),
+        Some(5)
+    );
+    assert!(
+        biz_res["construction"]["sample_records_seeded"]
+            .as_u64()
+            .unwrap_or(0)
+            > 0
+    );
 
     // 3. Construct Medical Surgery
     let surgery_store = DatabaseStore::open_in_memory()?;
@@ -549,7 +573,12 @@ async fn test_blueprint_constructor_facilities() -> Result<(), Box<dyn std::erro
     .await;
     assert_eq!(surgery_res["success"], true);
     assert_eq!(surgery_res["construction"]["blueprint_id"], "surgery");
-    assert_eq!(surgery_res["construction"]["tables_created"].as_array().map(|a| a.len()), Some(6));
+    assert_eq!(
+        surgery_res["construction"]["tables_created"]
+            .as_array()
+            .map(|a| a.len()),
+        Some(6)
+    );
 
     // 4. Construct Real Estate & Automotive Blueprints
     let prop_store = DatabaseStore::open_in_memory()?;

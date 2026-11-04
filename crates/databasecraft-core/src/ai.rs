@@ -12,9 +12,7 @@
 #![deny(clippy::todo)]
 
 use crate::error::DatabaseCraftError;
-use databasecraft_store::{
-    cosine_similarity, generate_text_embedding, DatabaseStore, FullSchema,
-};
+use databasecraft_store::{cosine_similarity, generate_text_embedding, DatabaseStore, FullSchema};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -135,21 +133,29 @@ pub fn nl_to_sql(prompt: &str, schema: &FullSchema) -> Result<NlqResult, Databas
             // Look for patterns like "where price > 100", "status is approved", "category is electronics"
             if lower_prompt.contains(&c_lower) {
                 if lower_prompt.contains(&format!("{c_lower} >")) {
-                    if let Some(val) = extract_number_after(&lower_prompt, &format!("{c_lower} >")) {
+                    if let Some(val) = extract_number_after(&lower_prompt, &format!("{c_lower} >"))
+                    {
                         where_clauses.push(format!("\"{}\" > {}", col.name, val));
                         explanation_clauses.push(format!("where {} > {}", col.name, val));
                     }
                 } else if lower_prompt.contains(&format!("{c_lower} <")) {
-                    if let Some(val) = extract_number_after(&lower_prompt, &format!("{c_lower} <")) {
+                    if let Some(val) = extract_number_after(&lower_prompt, &format!("{c_lower} <"))
+                    {
                         where_clauses.push(format!("\"{}\" < {}", col.name, val));
                         explanation_clauses.push(format!("where {} < {}", col.name, val));
                     }
-                } else if lower_prompt.contains(&format!("{c_lower} =")) || lower_prompt.contains(&format!("{c_lower} is")) {
+                } else if lower_prompt.contains(&format!("{c_lower} ="))
+                    || lower_prompt.contains(&format!("{c_lower} is"))
+                {
                     if let Some(word) = extract_word_after(&lower_prompt, &format!("{c_lower} is"))
                         .or_else(|| extract_word_after(&lower_prompt, &format!("{c_lower} =")))
                     {
                         let cleaned = word.trim_matches('\'').trim_matches('"');
-                        where_clauses.push(format!("\"{}\" = '{}'", col.name, cleaned.replace('\'', "''")));
+                        where_clauses.push(format!(
+                            "\"{}\" = '{}'",
+                            col.name,
+                            cleaned.replace('\'', "''")
+                        ));
                         explanation_clauses.push(format!("where {} is '{}'", col.name, cleaned));
                     }
                 }
@@ -160,14 +166,21 @@ pub fn nl_to_sql(prompt: &str, schema: &FullSchema) -> Result<NlqResult, Databas
     // Aggregate keywords
     let is_count = lower_prompt.contains("count") || lower_prompt.contains("how many");
     let is_sum = lower_prompt.contains("sum") || lower_prompt.contains("total");
-    let is_avg = lower_prompt.contains("average") || lower_prompt.contains("avg") || lower_prompt.contains("mean");
+    let is_avg = lower_prompt.contains("average")
+        || lower_prompt.contains("avg")
+        || lower_prompt.contains("mean");
 
     let select_clause = if is_count {
         explanation_clauses.push("counting records".to_string());
         "SELECT COUNT(*) AS total_count".to_string()
     } else if is_sum || is_avg {
         let numeric_col = target_schema
-            .and_then(|s| s.columns.iter().find(|c| c.data_type.to_lowercase().contains("int") || c.data_type.to_lowercase().contains("real")))
+            .and_then(|s| {
+                s.columns.iter().find(|c| {
+                    c.data_type.to_lowercase().contains("int")
+                        || c.data_type.to_lowercase().contains("real")
+                })
+            })
             .map(|c| c.name.as_str())
             .unwrap_or("id");
         if is_sum {
@@ -183,17 +196,37 @@ pub fn nl_to_sql(prompt: &str, schema: &FullSchema) -> Result<NlqResult, Databas
 
     // Ordering
     let mut order_clause = String::new();
-    if lower_prompt.contains("desc") || lower_prompt.contains("highest") || lower_prompt.contains("top") || lower_prompt.contains("newest") {
+    if lower_prompt.contains("desc")
+        || lower_prompt.contains("highest")
+        || lower_prompt.contains("top")
+        || lower_prompt.contains("newest")
+    {
         if let Some(tbl) = target_schema {
-            let order_col = tbl.columns.iter().find(|c| c.name.contains("created") || c.name.contains("date") || c.name.contains("price") || c.name.contains("id"))
+            let order_col = tbl
+                .columns
+                .iter()
+                .find(|c| {
+                    c.name.contains("created")
+                        || c.name.contains("date")
+                        || c.name.contains("price")
+                        || c.name.contains("id")
+                })
                 .map(|c| c.name.as_str())
                 .unwrap_or("rowid");
             order_clause = format!(" ORDER BY \"{}\" DESC", order_col);
             explanation_clauses.push(format!("sorted descending by {}", order_col));
         }
-    } else if lower_prompt.contains("asc") || lower_prompt.contains("lowest") || lower_prompt.contains("oldest") {
+    } else if lower_prompt.contains("asc")
+        || lower_prompt.contains("lowest")
+        || lower_prompt.contains("oldest")
+    {
         if let Some(tbl) = target_schema {
-            let order_col = tbl.columns.iter().find(|c| c.name.contains("id") || c.name.contains("created") || c.name.contains("price"))
+            let order_col = tbl
+                .columns
+                .iter()
+                .find(|c| {
+                    c.name.contains("id") || c.name.contains("created") || c.name.contains("price")
+                })
                 .map(|c| c.name.as_str())
                 .unwrap_or("rowid");
             order_clause = format!(" ORDER BY \"{}\" ASC", order_col);
@@ -226,7 +259,10 @@ pub fn nl_to_sql(prompt: &str, schema: &FullSchema) -> Result<NlqResult, Databas
     let explanation = if explanation_clauses.is_empty() {
         format!("Selects records from table '{target_table}' with standard limit {limit_num}.")
     } else {
-        format!("Queries table '{target_table}', {}.", explanation_clauses.join(", "))
+        format!(
+            "Queries table '{target_table}', {}.",
+            explanation_clauses.join(", ")
+        )
     };
 
     Ok(NlqResult {
@@ -263,11 +299,13 @@ pub fn semantic_dedupe(
     let sql = format!(
         "SELECT id, \"{column}\" FROM \"{table}\" WHERE \"{column}\" IS NOT NULL LIMIT 100;"
     );
-    let qr = store.query(&sql).map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+    let qr = store
+        .query(&sql)
+        .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
 
     let mut records: Vec<(i64, String, Vec<f32>)> = Vec::new();
     for row in &qr.rows {
-        if let (Some(id_val), Some(text_val)) = (row.get(0), row.get(1)) {
+        if let (Some(id_val), Some(text_val)) = (row.first(), row.get(1)) {
             let id = id_val.as_i64().unwrap_or(0);
             if let Some(text) = text_val.as_str() {
                 if !text.trim().is_empty() {
@@ -290,7 +328,11 @@ pub fn semantic_dedupe(
             if sim >= threshold {
                 let rec = format!(
                     "Merge candidate: ID {} ('{}') matches ID {} ('{}') with {:.1}% similarity",
-                    rec_b.0, rec_b.1, rec_a.0, rec_a.1, sim * 100.0
+                    rec_b.0,
+                    rec_b.1,
+                    rec_a.0,
+                    rec_a.1,
+                    sim * 100.0
                 );
                 clusters.push(DedupeCluster {
                     id_a: rec_a.0,
@@ -373,7 +415,11 @@ pub fn schema_advisor(
         // 4. Large text columns suitable for FTS5
         for col in &table.columns {
             let c_lower = col.name.to_lowercase();
-            if c_lower.contains("description") || c_lower.contains("content") || c_lower.contains("transcript") || c_lower.contains("notes") {
+            if c_lower.contains("description")
+                || c_lower.contains("content")
+                || c_lower.contains("transcript")
+                || c_lower.contains("notes")
+            {
                 let fts_name = format!("{}_fts", table.name);
                 let has_fts = schema.tables.iter().any(|t| t.name == fts_name);
                 if !has_fts {
@@ -415,10 +461,14 @@ pub fn generate_synthetic(
     let mut generated_records = Vec::with_capacity(count);
 
     // Look up existing FK target IDs so relational integrity is 100% valid
-    let mut fk_id_pools: std::collections::HashMap<String, Vec<i64>> = std::collections::HashMap::new();
+    let mut fk_id_pools: std::collections::HashMap<String, Vec<i64>> =
+        std::collections::HashMap::new();
     for fk in &schema.foreign_keys {
         let fk_qr = store
-            .query(&format!("SELECT \"{}\" FROM \"{}\" LIMIT 50;", fk.to, fk.table))
+            .query(&format!(
+                "SELECT \"{}\" FROM \"{}\" LIMIT 50;",
+                fk.to, fk.table
+            ))
             .unwrap_or(databasecraft_store::QueryResult {
                 columns: vec![],
                 rows: vec![],
@@ -469,18 +519,26 @@ pub fn generate_synthetic(
             } else if c_lower.contains("category") {
                 let cats = ["Audio", "Optics", "Color", "Hardware", "Publishing"];
                 json!(cats[(i - 1) % cats.len()])
-            } else if c_lower.contains("price") || c_lower.contains("cost") || c_lower.contains("amount") {
+            } else if c_lower.contains("price")
+                || c_lower.contains("cost")
+                || c_lower.contains("amount")
+            {
                 let price = 49.99 + (i as f64 * 35.50);
                 json!((price * 100.0).round() / 100.0)
             } else if c_lower.contains("rating") || c_lower.contains("score") {
                 json!(4.0 + ((i % 10) as f64 * 0.1))
-            } else if c_lower.contains("stock") || c_lower.contains("quantity") || c_lower.contains("count") {
+            } else if c_lower.contains("stock")
+                || c_lower.contains("quantity")
+                || c_lower.contains("count")
+            {
                 json!(10 + (i * 5))
             } else if c_lower.contains("sku") || c_lower.contains("code") {
                 json!(format!("CRAFT-{:04}", i))
             } else if col.data_type.to_lowercase().contains("int") {
                 json!(i as i64)
-            } else if col.data_type.to_lowercase().contains("real") || col.data_type.to_lowercase().contains("float") {
+            } else if col.data_type.to_lowercase().contains("real")
+                || col.data_type.to_lowercase().contains("float")
+            {
                 json!(i as f64 * 1.5)
             } else {
                 json!(format!("Sample {} data {}", col.name, i))
@@ -499,7 +557,9 @@ pub fn generate_synthetic(
                     cols.push(format!("\"{}\"", k));
                     match v {
                         Value::Null => vals.push("NULL".to_string()),
-                        Value::Bool(b) => vals.push(if *b { "1".to_string() } else { "0".to_string() }),
+                        Value::Bool(b) => {
+                            vals.push(if *b { "1".to_string() } else { "0".to_string() })
+                        }
                         Value::Number(n) => vals.push(n.to_string()),
                         Value::String(s) => vals.push(format!("'{}'", s.replace('\'', "''"))),
                         _ => vals.push(format!("'{}'", v.to_string().replace('\'', "''"))),
@@ -550,9 +610,15 @@ pub fn ingest_document(
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );"
     );
-    store.execute(&init_sql).map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
-    store.init_vector_table(vec_table, 128).map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
-    store.init_fts(fts_table, &["heading", "body", "tags"]).map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+    store
+        .execute(&init_sql)
+        .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+    store
+        .init_vector_table(vec_table, 128)
+        .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+    store
+        .init_fts(fts_table, &["heading", "body", "tags"])
+        .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
 
     // 2. Chunk content by markdown headings or paragraphs
     let mut chunks: Vec<DocumentChunk> = Vec::new();
@@ -617,11 +683,20 @@ pub fn ingest_document(
             tags_json.replace('\'', "''"),
             chunk.char_count
         );
-        store.execute(&insert_sql).map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+        store
+            .execute(&insert_sql)
+            .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
 
         // Retrieve inserted id
-        let id_qr = store.query("SELECT last_insert_rowid();").map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
-        let doc_id = id_qr.rows.first().and_then(|r| r.first()).and_then(|v| v.as_i64()).unwrap_or(0);
+        let id_qr = store
+            .query("SELECT last_insert_rowid();")
+            .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+        let doc_id = id_qr
+            .rows
+            .first()
+            .and_then(|r| r.first())
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
 
         // Vector embedding
         let emb = generate_text_embedding(&format!("{} {}", chunk.heading, chunk.body), 128);
@@ -631,7 +706,9 @@ pub fn ingest_document(
             "chunk_index": chunk.chunk_index,
             "tags": tags,
         });
-        store.insert_vector(vec_table, doc_id, &emb, &meta).map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+        store
+            .insert_vector(vec_table, doc_id, &emb, &meta)
+            .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
 
         // FTS index
         let fts_sql = format!(
@@ -640,7 +717,9 @@ pub fn ingest_document(
             chunk.body.replace('\'', "''"),
             tags_json.replace('\'', "''")
         );
-        store.execute(&fts_sql).map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+        store
+            .execute(&fts_sql)
+            .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
     }
 
     Ok(IngestResult {

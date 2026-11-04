@@ -49,6 +49,7 @@ enum Commands {
         json: bool,
     },
     /// Inspect database schema (all tables or a single table)
+    #[command(alias = "schema")]
     SchemaInspect {
         #[arg(long)]
         table: Option<String>,
@@ -232,6 +233,15 @@ enum Commands {
     /// Inspect parameter signature and description for a specific command ID
     Describe {
         command_id: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Compare schemas between two databases (db1 vs db2) and report added/removed tables and columns
+    Diff {
+        #[arg(long)]
+        db1: String,
+        #[arg(long)]
+        db2: String,
         #[arg(long)]
         json: bool,
     },
@@ -422,7 +432,11 @@ fn main() {
                         .take(5)
                         .map(|v| format!("{:.4}", v.as_f64().unwrap_or(0.0)))
                         .collect();
-                    println!("Vector:     [{}, ...] (length: {})", preview.join(", "), arr.len());
+                    println!(
+                        "Vector:     [{}, ...] (length: {})",
+                        preview.join(", "),
+                        arr.len()
+                    );
                 }
             }
         }
@@ -458,7 +472,10 @@ fn main() {
                             "  #{}: ID={} | Score={:.4} | Meta={}",
                             i + 1,
                             hit["id"],
-                            hit.get("rrf_score").or_else(|| hit.get("score")).and_then(|v| v.as_f64()).unwrap_or(0.0),
+                            hit.get("rrf_score")
+                                .or_else(|| hit.get("score"))
+                                .and_then(|v| v.as_f64())
+                                .unwrap_or(0.0),
                             hit["metadata"]
                         );
                     }
@@ -474,21 +491,44 @@ fn main() {
                 println!("Synthesized SQL: {}", res["sql"]);
                 println!("Explanation:    {}", res["explanation"]);
                 println!("Target Table:   {}", res["target_table"]);
-                println!("Confidence:     {:.2}", res["confidence"].as_f64().unwrap_or(0.0));
+                println!(
+                    "Confidence:     {:.2}",
+                    res["confidence"].as_f64().unwrap_or(0.0)
+                );
             } else {
                 eprintln!("Error: {}", res["error"]);
             }
         }
-        Commands::Dedupe { table, column, threshold, db, json } => {
+        Commands::Dedupe {
+            table,
+            column,
+            threshold,
+            db,
+            json,
+        } => {
             let store = open_store(db.as_deref());
-            let res = rt.block_on(dispatch(Command::AiSemanticDedupe { table, column, threshold }, &store));
+            let res = rt.block_on(dispatch(
+                Command::AiSemanticDedupe {
+                    table,
+                    column,
+                    threshold,
+                },
+                &store,
+            ));
             if json {
                 println!("{res}");
             } else if res["success"] == true {
-                println!("Evaluated {} pairs, found {} duplicate clusters:", res["pairs_evaluated"], res["duplicates_found"]);
+                println!(
+                    "Evaluated {} pairs, found {} duplicate clusters:",
+                    res["pairs_evaluated"], res["duplicates_found"]
+                );
                 if let Some(clusters) = res["clusters"].as_array() {
                     for c in clusters {
-                        println!("  - [{:.1}%] {}", c["similarity"].as_f64().unwrap_or(0.0) * 100.0, c["recommendation"]);
+                        println!(
+                            "  - [{:.1}%] {}",
+                            c["similarity"].as_f64().unwrap_or(0.0) * 100.0,
+                            c["recommendation"]
+                        );
                     }
                 }
             } else {
@@ -501,7 +541,10 @@ fn main() {
             if json {
                 println!("{res}");
             } else if res["success"] == true {
-                println!("Schema Advisor Analysis ({} tables inspected, {} recommendations):", res["total_tables"], res["issues_found"]);
+                println!(
+                    "Schema Advisor Analysis ({} tables inspected, {} recommendations):",
+                    res["total_tables"], res["issues_found"]
+                );
                 if let Some(recs) = res["recommendations"].as_array() {
                     for r in recs {
                         println!("  [{}] Table {}: {}", r["priority"], r["table"], r["issue"]);
@@ -515,26 +558,64 @@ fn main() {
                 eprintln!("Error: {}", res["error"]);
             }
         }
-        Commands::Synthetic { table, count, insert, db, json } => {
+        Commands::Synthetic {
+            table,
+            count,
+            insert,
+            db,
+            json,
+        } => {
             let store = open_store(db.as_deref());
-            let res = rt.block_on(dispatch(Command::AiGenerateSynthetic { table, count, insert: Some(insert) }, &store));
+            let res = rt.block_on(dispatch(
+                Command::AiGenerateSynthetic {
+                    table,
+                    count,
+                    insert: Some(insert),
+                },
+                &store,
+            ));
             if json {
                 println!("{res}");
             } else if res["success"] == true {
-                println!("Generated {} synthetic records for '{}' (inserted: {}):", res["requested_count"], res["table"], res["inserted"]);
-                println!("{}", serde_json::to_string_pretty(&res["records"]).unwrap_or_default());
+                println!(
+                    "Generated {} synthetic records for '{}' (inserted: {}):",
+                    res["requested_count"], res["table"], res["inserted"]
+                );
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&res["records"]).unwrap_or_default()
+                );
             } else {
                 eprintln!("Error: {}", res["error"]);
             }
         }
-        Commands::Ingest { title, content, tags, db, json } => {
+        Commands::Ingest {
+            title,
+            content,
+            tags,
+            db,
+            json,
+        } => {
             let store = open_store(db.as_deref());
-            let res = rt.block_on(dispatch(Command::AiIngestDocument { title, content, tags: Some(tags) }, &store));
+            let res = rt.block_on(dispatch(
+                Command::AiIngestDocument {
+                    title,
+                    content,
+                    tags: Some(tags),
+                },
+                &store,
+            ));
             if json {
                 println!("{res}");
             } else if res["success"] == true {
-                println!("Ingested document '{}': {} chunks indexed into '{}', '{}', and '{}'", 
-                    res["document_title"], res["chunks_indexed"], res["target_table"], res["vector_table"], res["fts_table"]);
+                println!(
+                    "Ingested document '{}': {} chunks indexed into '{}', '{}', and '{}'",
+                    res["document_title"],
+                    res["chunks_indexed"],
+                    res["target_table"],
+                    res["vector_table"],
+                    res["fts_table"]
+                );
             } else {
                 eprintln!("Error: {}", res["error"]);
             }
@@ -546,7 +627,10 @@ fn main() {
                 println!("{res}");
             } else if res["success"] == true {
                 let prof = &res["profile"];
-                println!("Profile for table '{}' (total rows: {}):", prof["table"], prof["total_rows"]);
+                println!(
+                    "Profile for table '{}' (total rows: {}):",
+                    prof["table"], prof["total_rows"]
+                );
                 if let Some(cols) = prof["columns"].as_array() {
                     for c in cols {
                         println!("  - {:20} {:10} | Nulls: {:5} | Distinct: {:5} | Min: {:?} | Max: {:?}",
@@ -589,8 +673,21 @@ fn main() {
             } else if res["success"] == true {
                 let report = &res["report"];
                 println!("Health Status:         [{}]", report["status"]);
-                println!("Integrity (B-Tree):    {}", if report["integrity_ok"] == true { "PASS (ok)" } else { "FAIL (corrupt)" });
-                println!("Foreign Key Violations: {}", report["fk_violations"].as_array().map(|a| a.len()).unwrap_or(0));
+                println!(
+                    "Integrity (B-Tree):    {}",
+                    if report["integrity_ok"] == true {
+                        "PASS (ok)"
+                    } else {
+                        "FAIL (corrupt)"
+                    }
+                );
+                println!(
+                    "Foreign Key Violations: {}",
+                    report["fk_violations"]
+                        .as_array()
+                        .map(|a| a.len())
+                        .unwrap_or(0)
+                );
                 if let Some(errs) = report["integrity_errors"].as_array() {
                     for err in errs {
                         eprintln!("  ! Integrity Error: {}", err.as_str().unwrap_or(""));
@@ -598,7 +695,8 @@ fn main() {
                 }
                 if let Some(fks) = report["fk_violations"].as_array() {
                     for fk in fks {
-                        println!("  ! Orphan Row: Table '{}' rowid {} -> '{}' (fkid {})",
+                        println!(
+                            "  ! Orphan Row: Table '{}' rowid {} -> '{}' (fkid {})",
                             fk["table"].as_str().unwrap_or(""),
                             fk["rowid"],
                             fk["target_table"].as_str().unwrap_or(""),
@@ -610,15 +708,29 @@ fn main() {
                 eprintln!("Error: {}", res["error"]);
             }
         }
-        Commands::Repair { action, salvage_path, db, json } => {
+        Commands::Repair {
+            action,
+            salvage_path,
+            db,
+            json,
+        } => {
             let store = open_store(db.as_deref());
-            let res = rt.block_on(dispatch(Command::Repair { action, salvage_path }, &store));
+            let res = rt.block_on(dispatch(
+                Command::Repair {
+                    action,
+                    salvage_path,
+                },
+                &store,
+            ));
             if json {
                 println!("{res}");
             } else if res["success"] == true {
                 println!("Repair Action Succeeded: {}", res["action"]);
                 if !res["report"].is_null() {
-                    println!("{}", serde_json::to_string_pretty(&res["report"]).unwrap_or_default());
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&res["report"]).unwrap_or_default()
+                    );
                 } else {
                     println!("Status: {}", res["status"]);
                 }
@@ -626,21 +738,46 @@ fn main() {
                 eprintln!("Repair Error: {}", res["error"]);
             }
         }
-        Commands::Construct { blueprint, seed, search, db, json } => {
+        Commands::Construct {
+            blueprint,
+            seed,
+            search,
+            db,
+            json,
+        } => {
             let store = open_store(db.as_deref());
-            let res = rt.block_on(dispatch(Command::Construct { blueprint, seed_sample_data: Some(seed), enable_search_indexes: Some(search) }, &store));
+            let res = rt.block_on(dispatch(
+                Command::Construct {
+                    blueprint,
+                    seed_sample_data: Some(seed),
+                    enable_search_indexes: Some(search),
+                },
+                &store,
+            ));
             if json {
                 println!("{res}");
             } else if res["success"] == true {
                 let c = &res["construction"];
-                println!("Successfully Constructed Blueprint: {} ({})", c["blueprint_name"], c["blueprint_id"]);
-                println!("Tables Created ({}):", c["tables_created"].as_array().map(|a| a.len()).unwrap_or(0));
+                println!(
+                    "Successfully Constructed Blueprint: {} ({})",
+                    c["blueprint_name"], c["blueprint_id"]
+                );
+                println!(
+                    "Tables Created ({}):",
+                    c["tables_created"].as_array().map(|a| a.len()).unwrap_or(0)
+                );
                 if let Some(tbls) = c["tables_created"].as_array() {
                     for t in tbls {
                         println!("  - {}", t.as_str().unwrap_or(""));
                     }
                 }
-                println!("Indexes Created ({}):", c["indexes_created"].as_array().map(|a| a.len()).unwrap_or(0));
+                println!(
+                    "Indexes Created ({}):",
+                    c["indexes_created"]
+                        .as_array()
+                        .map(|a| a.len())
+                        .unwrap_or(0)
+                );
                 println!("FTS Search Tables: {:?}", c["fts_tables_created"]);
                 println!("Sample Records Seeded: {}", c["sample_records_seeded"]);
             } else {
@@ -654,9 +791,15 @@ fn main() {
             });
             let res = rt.block_on(dispatch(Command::ListBlueprints, &store));
             if json {
-                println!("{}", serde_json::to_string_pretty(&res["blueprints"]).unwrap_or_default());
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&res["blueprints"]).unwrap_or_default()
+                );
             } else if let Some(bps) = res["blueprints"].as_array() {
-                println!("Available Domain Database Blueprints ({} archetypes):", bps.len());
+                println!(
+                    "Available Domain Database Blueprints ({} archetypes):",
+                    bps.len()
+                );
                 for bp in bps {
                     println!("\n  [{}] {} ({})", bp["id"], bp["name"], bp["category"]);
                     println!("    {}", bp["description"]);
@@ -705,6 +848,122 @@ fn main() {
                 std::process::exit(1);
             }
         },
+        Commands::Diff { db1, db2, json } => {
+            let store1 = open_store(Some(&db1));
+            let store2 = open_store(Some(&db2));
+            let schema1 = match store1.inspect_all() {
+                Ok(s) => s,
+                Err(e) => {
+                    let err = json!({ "success": false, "error": format!("Failed to inspect {db1}: {e}") });
+                    if json { println!("{err}"); } else { eprintln!("{err}"); }
+                    std::process::exit(1);
+                }
+            };
+            let schema2 = match store2.inspect_all() {
+                Ok(s) => s,
+                Err(e) => {
+                    let err = json!({ "success": false, "error": format!("Failed to inspect {db2}: {e}") });
+                    if json { println!("{err}"); } else { eprintln!("{err}"); }
+                    std::process::exit(1);
+                }
+            };
+
+            let tables1: std::collections::HashMap<String, &databasecraft_store::TableSchema> =
+                schema1.tables.iter().map(|t| (t.name.clone(), t)).collect();
+            let tables2: std::collections::HashMap<String, &databasecraft_store::TableSchema> =
+                schema2.tables.iter().map(|t| (t.name.clone(), t)).collect();
+
+            let mut tables_added: Vec<String> = Vec::new();
+            let mut tables_removed: Vec<String> = Vec::new();
+            let mut tables_modified: Vec<Value> = Vec::new();
+
+            for (name, t2) in &tables2 {
+                match tables1.get(name) {
+                    None => tables_added.push(name.clone()),
+                    Some(t1) => {
+                        let cols1: std::collections::HashMap<String, &databasecraft_store::ColumnInfo> =
+                            t1.columns.iter().map(|c| (c.name.clone(), c)).collect();
+                        let cols2: std::collections::HashMap<String, &databasecraft_store::ColumnInfo> =
+                            t2.columns.iter().map(|c| (c.name.clone(), c)).collect();
+
+                        let mut cols_added = Vec::new();
+                        let mut cols_removed = Vec::new();
+                        let mut cols_changed = Vec::new();
+
+                        for (cname, c2) in &cols2 {
+                            match cols1.get(cname) {
+                                None => cols_added.push(cname.clone()),
+                                Some(c1) => {
+                                    if c1.data_type != c2.data_type {
+                                        cols_changed.push(json!({
+                                            "column": cname,
+                                            "from": c1.data_type,
+                                            "to": c2.data_type,
+                                        }));
+                                    }
+                                }
+                            }
+                        }
+                        for cname in cols1.keys() {
+                            if !cols2.contains_key(cname) {
+                                cols_removed.push(cname.clone());
+                            }
+                        }
+
+                        if !cols_added.is_empty() || !cols_removed.is_empty() || !cols_changed.is_empty() {
+                            tables_modified.push(json!({
+                                "table": name,
+                                "columns_added": cols_added,
+                                "columns_removed": cols_removed,
+                                "columns_changed": cols_changed,
+                            }));
+                        }
+                    }
+                }
+            }
+
+            for name in tables1.keys() {
+                if !tables2.contains_key(name) {
+                    tables_removed.push(name.clone());
+                }
+            }
+
+            tables_added.sort();
+            tables_removed.sort();
+
+            let identical = tables_added.is_empty() && tables_removed.is_empty() && tables_modified.is_empty();
+            let res = json!({
+                "success": true,
+                "db1": db1,
+                "db2": db2,
+                "identical": identical,
+                "tables_added": tables_added,
+                "tables_removed": tables_removed,
+                "tables_modified": tables_modified,
+            });
+
+            if json {
+                println!("{res}");
+            } else {
+                println!("Database Schema Diff:");
+                println!("  Database 1: {db1}");
+                println!("  Database 2: {db2}");
+                if identical {
+                    println!("  Status: Identical schemas.");
+                } else {
+                    println!("  Status: Schemas differ.");
+                    if !tables_added.is_empty() {
+                        println!("  Tables added in db2: {}", tables_added.join(", "));
+                    }
+                    if !tables_removed.is_empty() {
+                        println!("  Tables removed in db2: {}", tables_removed.join(", "));
+                    }
+                    for m in &tables_modified {
+                        println!("  Table '{}' modifications: {m}", m["table"].as_str().unwrap_or(""));
+                    }
+                }
+            }
+        }
         Commands::Mcp { db, attach } => {
             if let Some(port) = attach {
                 run_mcp_attach(port);
@@ -1089,57 +1348,81 @@ pub fn call_tool(rt: &Runtime, store: &DatabaseStore, name: &str, args: &Value) 
             let table = args["table"].as_str().unwrap_or("").to_string();
             let column = args["column"].as_str().unwrap_or("").to_string();
             let threshold = args["threshold"].as_f64().map(|f| f as f32);
-            rt.block_on(dispatch(Command::AiSemanticDedupe { table, column, threshold }, store))
+            rt.block_on(dispatch(
+                Command::AiSemanticDedupe {
+                    table,
+                    column,
+                    threshold,
+                },
+                store,
+            ))
         }
-        "db_schema_advisor" => {
-            rt.block_on(dispatch(Command::AiSchemaAdvisor, store))
-        }
+        "db_schema_advisor" => rt.block_on(dispatch(Command::AiSchemaAdvisor, store)),
         "db_generate_synthetic" => {
             let table = args["table"].as_str().unwrap_or("").to_string();
             let count = args["count"].as_u64().unwrap_or(5) as usize;
             let insert = args["insert"].as_bool();
-            rt.block_on(dispatch(Command::AiGenerateSynthetic { table, count, insert }, store))
+            rt.block_on(dispatch(
+                Command::AiGenerateSynthetic {
+                    table,
+                    count,
+                    insert,
+                },
+                store,
+            ))
         }
         "db_ingest_document" => {
             let title = args["title"].as_str().unwrap_or("").to_string();
             let content = args["content"].as_str().unwrap_or("").to_string();
             let tags = args["tags"].as_array().map(|arr| {
-                arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect()
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
             });
-            rt.block_on(dispatch(Command::AiIngestDocument { title, content, tags }, store))
+            rt.block_on(dispatch(
+                Command::AiIngestDocument {
+                    title,
+                    content,
+                    tags,
+                },
+                store,
+            ))
         }
         "db_data_profile" => {
             let table = args["table"].as_str().unwrap_or("").to_string();
             rt.block_on(dispatch(Command::DataProfile { table }, store))
         }
-        "db_vacuum" => {
-            rt.block_on(dispatch(Command::Vacuum, store))
-        }
+        "db_vacuum" => rt.block_on(dispatch(Command::Vacuum, store)),
         "db_backup" => {
             let path = args["path"].as_str().unwrap_or("").to_string();
             rt.block_on(dispatch(Command::Backup { path }, store))
         }
-        "db_diagnose" => {
-            rt.block_on(dispatch(Command::Diagnose, store))
-        }
+        "db_diagnose" => rt.block_on(dispatch(Command::Diagnose, store)),
         "db_repair" => {
             let action = args["action"].as_str().unwrap_or("auto").to_string();
             let salvage_path = args["salvage_path"].as_str().map(|s| s.to_string());
-            rt.block_on(dispatch(Command::Repair { action, salvage_path }, store))
+            rt.block_on(dispatch(
+                Command::Repair {
+                    action,
+                    salvage_path,
+                },
+                store,
+            ))
         }
         "db_construct" => {
             let blueprint = args["blueprint"].as_str().unwrap_or("").to_string();
             let seed = args["seed"].as_bool();
             let search = args["search"].as_bool();
-            rt.block_on(dispatch(Command::Construct {
-                blueprint,
-                seed_sample_data: seed,
-                enable_search_indexes: search,
-            }, store))
+            rt.block_on(dispatch(
+                Command::Construct {
+                    blueprint,
+                    seed_sample_data: seed,
+                    enable_search_indexes: search,
+                },
+                store,
+            ))
         }
-        "db_list_blueprints" => {
-            rt.block_on(dispatch(Command::ListBlueprints, store))
-        }
+        "db_list_blueprints" => rt.block_on(dispatch(Command::ListBlueprints, store)),
         unknown => json!({ "success": false, "error": format!("Unknown tool '{unknown}'") }),
     }
 }

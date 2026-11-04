@@ -563,8 +563,13 @@ impl DatabaseStore {
 
     /// List existing indexes for a given table.
     pub fn list_indexes(&self, table_name: &str) -> Result<Vec<String>, StoreError> {
-        if !table_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-            return Err(StoreError::InvalidInput(format!("table name '{table_name}' contains illegal characters")));
+        if !table_name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
+            return Err(StoreError::InvalidInput(format!(
+                "table name '{table_name}' contains illegal characters"
+            )));
         }
         let qr = self.query(&format!("PRAGMA index_list(\"{table_name}\");"))?;
         let mut idxs = Vec::new();
@@ -601,15 +606,16 @@ impl DatabaseStore {
                  FROM \"{table_name}\";"
             );
             let stat_qr = self.query(&stat_sql)?;
-            let (null_count, distinct_count, min_val, max_val) = if let Some(row) = stat_qr.rows.first() {
-                let nulls = row.get(0).and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-                let dist = row.get(1).and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-                let min_str = row.get(2).filter(|v| !v.is_null()).map(|v| v.to_string());
-                let max_str = row.get(3).filter(|v| !v.is_null()).map(|v| v.to_string());
-                (nulls, dist, min_str, max_str)
-            } else {
-                (0, 0, None, None)
-            };
+            let (null_count, distinct_count, min_val, max_val) =
+                if let Some(row) = stat_qr.rows.first() {
+                    let nulls = row.first().and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                    let dist = row.get(1).and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                    let min_str = row.get(2).filter(|v| !v.is_null()).map(|v| v.to_string());
+                    let max_str = row.get(3).filter(|v| !v.is_null()).map(|v| v.to_string());
+                    (nulls, dist, min_str, max_str)
+                } else {
+                    (0, 0, None, None)
+                };
 
             columns.push(ColumnProfile {
                 name: col_name.clone(),
@@ -651,8 +657,8 @@ impl DatabaseStore {
         let mut fk_violations = Vec::new();
 
         for row in &fk_qr.rows {
-            if let (Some(tbl), Some(rowid_val), Some(target_tbl), Some(fkid_val)) = 
-                (row.get(0), row.get(1), row.get(2), row.get(3)) 
+            if let (Some(tbl), Some(rowid_val), Some(target_tbl), Some(fkid_val)) =
+                (row.first(), row.get(1), row.get(2), row.get(3))
             {
                 let table = tbl.as_str().unwrap_or("unknown").to_string();
                 let rowid = rowid_val.as_i64().unwrap_or(0);
@@ -700,7 +706,11 @@ impl DatabaseStore {
         let mut total_purged = 0;
 
         for violation in &diag.fk_violations {
-            if !violation.table.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            if !violation
+                .table
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_')
+            {
                 continue;
             }
             let delete_sql = format!(
@@ -751,9 +761,16 @@ impl DatabaseStore {
             for col in &tbl.columns {
                 let pk_str = if col.pk { " PRIMARY KEY" } else { "" };
                 let notnull_str = if col.notnull { " NOT NULL" } else { "" };
-                col_defs.push(format!("\"{}\" {}{}{}", col.name, col.data_type, pk_str, notnull_str));
+                col_defs.push(format!(
+                    "\"{}\" {}{}{}",
+                    col.name, col.data_type, pk_str, notnull_str
+                ));
             }
-            let ddl = format!("CREATE TABLE IF NOT EXISTS \"{}\" ({});", tbl.name, col_defs.join(", "));
+            let ddl = format!(
+                "CREATE TABLE IF NOT EXISTS \"{}\" ({});",
+                tbl.name,
+                col_defs.join(", ")
+            );
             let _ = clean_store.execute(&ddl);
 
             // Copy rows safely row-by-row
@@ -765,14 +782,25 @@ impl DatabaseStore {
                         col_names.push(format!("\"{}\"", col_name));
                         match val {
                             serde_json::Value::Null => val_strs.push("NULL".to_string()),
-                            serde_json::Value::Bool(b) => val_strs.push(if *b { "1".to_string() } else { "0".to_string() }),
+                            serde_json::Value::Bool(b) => {
+                                val_strs.push(if *b { "1".to_string() } else { "0".to_string() })
+                            }
                             serde_json::Value::Number(n) => val_strs.push(n.to_string()),
-                            serde_json::Value::String(s) => val_strs.push(format!("'{}'", s.replace('\'', "''"))),
-                            _ => val_strs.push(format!("'{}'", val.to_string().replace('\'', "''"))),
+                            serde_json::Value::String(s) => {
+                                val_strs.push(format!("'{}'", s.replace('\'', "''")))
+                            }
+                            _ => {
+                                val_strs.push(format!("'{}'", val.to_string().replace('\'', "''")))
+                            }
                         }
                     }
                     if !col_names.is_empty() {
-                        let ins = format!("INSERT OR IGNORE INTO \"{}\" ({}) VALUES ({});", tbl.name, col_names.join(", "), val_strs.join(", "));
+                        let ins = format!(
+                            "INSERT OR IGNORE INTO \"{}\" ({}) VALUES ({});",
+                            tbl.name,
+                            col_names.join(", "),
+                            val_strs.join(", ")
+                        );
                         if clean_store.execute(&ins).is_ok() {
                             total_recovered_rows += 1;
                         }
@@ -784,7 +812,9 @@ impl DatabaseStore {
         let final_diag = clean_store.diagnose()?;
 
         Ok(RepairReport {
-            action_taken: format!("salvage_dump (recovered {total_recovered_rows} rows to new file)"),
+            action_taken: format!(
+                "salvage_dump (recovered {total_recovered_rows} rows to new file)"
+            ),
             indexes_rebuilt: true,
             orphans_purged: 0,
             vacuum_succeeded: true,

@@ -513,7 +513,9 @@ fn execute_dispatch(cmd: Command, store: &DatabaseStore) -> Result<Value, Databa
             }
         }
         Command::AiNlToSql { prompt } => {
-            let full_schema = store.inspect_all().map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+            let full_schema = store
+                .inspect_all()
+                .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
             let nlq = ai::nl_to_sql(&prompt, &full_schema)?;
             Ok(json!({
                 "success": true,
@@ -545,7 +547,9 @@ fn execute_dispatch(cmd: Command, store: &DatabaseStore) -> Result<Value, Databa
             }))
         }
         Command::AiSchemaAdvisor => {
-            let full_schema = store.inspect_all().map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+            let full_schema = store
+                .inspect_all()
+                .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
             let res = ai::schema_advisor(store, &full_schema)?;
             Ok(json!({
                 "success": true,
@@ -588,38 +592,53 @@ fn execute_dispatch(cmd: Command, store: &DatabaseStore) -> Result<Value, Databa
         }
         Command::DataProfile { table } => {
             validate_identifier(&table)?;
-            let profile = store.profile_table(&table).map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+            let profile = store
+                .profile_table(&table)
+                .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
             Ok(json!({
                 "success": true,
                 "profile": profile,
             }))
         }
         Command::Vacuum => {
-            store.vacuum().map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+            store
+                .vacuum()
+                .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
             Ok(json!({
                 "success": true,
                 "status": "vacuum completed",
             }))
         }
         Command::Backup { path } => {
-            store.backup_into(&path).map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+            store
+                .backup_into(&path)
+                .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
             Ok(json!({
                 "success": true,
                 "backup_path": path,
             }))
         }
         Command::Diagnose => {
-            let diag = store.diagnose().map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+            let diag = store
+                .diagnose()
+                .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
             Ok(json!({
                 "success": true,
                 "report": diag,
             }))
         }
-        Command::Repair { action, salvage_path } => {
+        Command::Repair {
+            action,
+            salvage_path,
+        } => {
             match action.to_lowercase().as_str() {
                 "reindex" => {
-                    store.reindex_all().map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
-                    let diag = store.diagnose().map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+                    store
+                        .reindex_all()
+                        .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+                    let diag = store
+                        .diagnose()
+                        .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
                     Ok(json!({
                         "success": true,
                         "action": "reindex",
@@ -627,8 +646,12 @@ fn execute_dispatch(cmd: Command, store: &DatabaseStore) -> Result<Value, Databa
                     }))
                 }
                 "purge_orphans" => {
-                    let purged = store.purge_foreign_key_orphans().map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
-                    let diag = store.diagnose().map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+                    let purged = store
+                        .purge_foreign_key_orphans()
+                        .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+                    let diag = store
+                        .diagnose()
+                        .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
                     Ok(json!({
                         "success": true,
                         "action": "purge_orphans",
@@ -637,8 +660,11 @@ fn execute_dispatch(cmd: Command, store: &DatabaseStore) -> Result<Value, Databa
                     }))
                 }
                 "salvage" => {
-                    let target = salvage_path.unwrap_or_else(|| "salvaged_database.dbcraft".to_string());
-                    let report = store.salvage_to(&target).map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+                    let target =
+                        salvage_path.unwrap_or_else(|| "salvaged_database.dbcraft".to_string());
+                    let report = store
+                        .salvage_to(&target)
+                        .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
                     Ok(json!({
                         "success": true,
                         "action": "salvage",
@@ -647,7 +673,9 @@ fn execute_dispatch(cmd: Command, store: &DatabaseStore) -> Result<Value, Databa
                 }
                 _ => {
                     // Default to auto_repair
-                    let report = store.auto_repair().map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+                    let report = store
+                        .auto_repair()
+                        .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
                     Ok(json!({
                         "success": true,
                         "action": "auto_repair",
