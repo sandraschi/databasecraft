@@ -188,6 +188,24 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Inspect B-tree pages and foreign key relationships to detect database damage or inconsistencies
+    Diagnose {
+        #[arg(long)]
+        db: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Repair database: reindex B-trees, purge orphaned foreign keys, or salvage records to clean clone
+    Repair {
+        #[arg(long, default_value = "auto")]
+        action: String,
+        #[arg(long)]
+        salvage_path: Option<String>,
+        #[arg(long)]
+        db: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
     /// List all registered commands in the Craft command bus (id, label, signature)
     #[command(name = "commands")]
     Registry {
@@ -546,6 +564,51 @@ fn main() {
                 println!("Backup completed to: {}", res["backup_path"]);
             }
         }
+        Commands::Diagnose { db, json } => {
+            let store = open_store(db.as_deref());
+            let res = rt.block_on(dispatch(Command::Diagnose, &store));
+            if json {
+                println!("{res}");
+            } else if res["success"] == true {
+                let report = &res["report"];
+                println!("Health Status:         [{}]", report["status"]);
+                println!("Integrity (B-Tree):    {}", if report["integrity_ok"] == true { "PASS (ok)" } else { "FAIL (corrupt)" });
+                println!("Foreign Key Violations: {}", report["fk_violations"].as_array().map(|a| a.len()).unwrap_or(0));
+                if let Some(errs) = report["integrity_errors"].as_array() {
+                    for err in errs {
+                        eprintln!("  ! Integrity Error: {}", err.as_str().unwrap_or(""));
+                    }
+                }
+                if let Some(fks) = report["fk_violations"].as_array() {
+                    for fk in fks {
+                        println!("  ! Orphan Row: Table '{}' rowid {} -> '{}' (fkid {})",
+                            fk["table"].as_str().unwrap_or(""),
+                            fk["rowid"],
+                            fk["target_table"].as_str().unwrap_or(""),
+                            fk["fkid"]
+                        );
+                    }
+                }
+            } else {
+                eprintln!("Error: {}", res["error"]);
+            }
+        }
+        Commands::Repair { action, salvage_path, db, json } => {
+            let store = open_store(db.as_deref());
+            let res = rt.block_on(dispatch(Command::Repair { action, salvage_path }, &store));
+            if json {
+                println!("{res}");
+            } else if res["success"] == true {
+                println!("Repair Action Succeeded: {}", res["action"]);
+                if !res["report"].is_null() {
+                    println!("{}", serde_json::to_string_pretty(&res["report"]).unwrap_or_default());
+                } else {
+                    println!("Status: {}", res["status"]);
+                }
+            } else {
+                eprintln!("Repair Error: {}", res["error"]);
+            }
+        }
         Commands::Registry { json } => {
             let registry = command_registry();
             if json {
@@ -805,6 +868,25 @@ pub fn tools_list() -> Value {
                 },
                 "required": ["path"]
             }
+        },
+        {
+            "name": "db_diagnose",
+            "description": "Inspect B-tree pages and foreign key relationships to detect database damage or inconsistencies",
+            "inputSchema": {
+                "type": "object",
+                "properties": {}
+            }
+        },
+        {
+            "name": "db_repair",
+            "description": "Repair database: reindex B-trees, purge orphaned foreign keys, or salvage records to clean clone",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "action": { "type": "string", "description": "Repair action: auto (default), reindex, purge_orphans, or salvage" },
+                    "salvage_path": { "type": "string", "description": "Target path when using salvage action" }
+                }
+            }
         }
     ])
 }
@@ -957,6 +1039,14 @@ pub fn call_tool(rt: &Runtime, store: &DatabaseStore, name: &str, args: &Value) 
         "db_backup" => {
             let path = args["path"].as_str().unwrap_or("").to_string();
             rt.block_on(dispatch(Command::Backup { path }, store))
+        }
+        "db_diagnose" => {
+            rt.block_on(dispatch(Command::Diagnose, store))
+        }
+        "db_repair" => {
+            let action = args["action"].as_str().unwrap_or("auto").to_string();
+            let salvage_path = args["salvage_path"].as_str().map(|s| s.to_string());
+            rt.block_on(dispatch(Command::Repair { action, salvage_path }, store))
         }
         unknown => json!({ "success": false, "error": format!("Unknown tool '{unknown}'") }),
     }

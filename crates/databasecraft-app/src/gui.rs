@@ -27,6 +27,7 @@ pub enum ActiveTab {
     AiWorkflows,
     Rag,
     Profiler,
+    Doctor,
     Export,
 }
 
@@ -66,6 +67,9 @@ pub struct DatabaseCraftGui {
     pub ingest_tags: String,
     pub ingest_result: Option<Value>,
     pub profiler_result: Option<Value>,
+    pub diagnostic_report: Option<Value>,
+    pub repair_report: Option<Value>,
+    pub salvage_path: String,
     pub rag_text: String,
     pub rag_results: Option<Value>,
     pub export_target: ExportTarget,
@@ -113,6 +117,9 @@ impl DatabaseCraftGui {
             ingest_tags: "film, production, shot-log".to_string(),
             ingest_result: None,
             profiler_result: None,
+            diagnostic_report: None,
+            repair_report: None,
+            salvage_path: "salvaged_database.dbcraft".to_string(),
             rag_text: "Obsidian headphones".to_string(),
             rag_results: None,
             export_target: ExportTarget::DesignCraft,
@@ -293,6 +300,33 @@ impl DatabaseCraftGui {
         self.status_message = "Table profiling metrics computed".to_string();
     }
 
+    pub fn run_diagnostics(&mut self) {
+        let res = self
+            .runtime
+            .block_on(dispatch(Command::Diagnose, &self.store));
+        let status = res["report"]["status"].as_str().unwrap_or("UNKNOWN");
+        self.status_message = format!("Integrity check finished: [{status}]");
+        self.diagnostic_report = Some(res);
+    }
+
+    pub fn run_repair(&mut self, action: &str) {
+        let salvage = if action == "salvage" {
+            Some(self.salvage_path.clone())
+        } else {
+            None
+        };
+        let res = self.runtime.block_on(dispatch(
+            Command::Repair {
+                action: action.to_string(),
+                salvage_path: salvage,
+            },
+            &self.store,
+        ));
+        self.repair_report = Some(res);
+        self.refresh_tables();
+        self.run_diagnostics();
+    }
+
     pub fn run_rag_search(&mut self) {
         let text = self.rag_text.clone();
         let vec_table = self.tables.iter().find(|t| t.ends_with("_vec")).cloned();
@@ -471,6 +505,10 @@ impl eframe::App for DatabaseCraftGui {
                 if nav_button(ui, self.active_tab == ActiveTab::Profiler, "📈 Data Profiler") {
                     self.active_tab = ActiveTab::Profiler;
                     self.run_profiler();
+                }
+                if nav_button(ui, self.active_tab == ActiveTab::Doctor, "🩺 Doctor & Repair") {
+                    self.active_tab = ActiveTab::Doctor;
+                    self.run_diagnostics();
                 }
                 if nav_button(ui, self.active_tab == ActiveTab::Export, "📦 Cross-Craft Merge") {
                     self.active_tab = ActiveTab::Export;
@@ -1024,6 +1062,151 @@ impl eframe::App for DatabaseCraftGui {
                             });
                         });
                     }
+                }
+            }
+            ActiveTab::Doctor => {
+                ui.horizontal(|ui| {
+                    ui.heading("Database Health Inspector, Integrity Doctor & Repair Suite");
+                    ui.separator();
+                    if ui.button("🩺 Run Full Diagnostic Scan").clicked() {
+                        self.run_diagnostics();
+                    }
+                });
+                ui.separator();
+
+                let mut action_to_run = None;
+
+                if let Some(ref res) = self.diagnostic_report {
+                    if res["success"] == true {
+                        let rep = &res["report"];
+                        let status = rep["status"].as_str().unwrap_or("HEALTHY");
+                        let is_healthy = rep["is_healthy"].as_bool().unwrap_or(false);
+                        let integrity_ok = rep["integrity_ok"].as_bool().unwrap_or(false);
+                        let fks = rep["fk_violations"].as_array();
+                        let fk_count = fks.map(|a| a.len()).unwrap_or(0);
+
+                        let (status_color, status_icon, status_desc) = match status {
+                            "CORRUPTED" => (
+                                Color32::from_rgb(239, 68, 68),
+                                "🚨",
+                                "CRITICAL: B-Tree page corruption or invalid cell pointers detected! Immediate reindex or salvage required.",
+                            ),
+                            "DEGRADED" => (
+                                amber,
+                                "⚠️",
+                                "DEGRADED: Relational inconsistency detected. Orphan child rows violate foreign-key constraints.",
+                            ),
+                            _ => (
+                                emerald_bright,
+                                "✅",
+                                "HEALTHY: All SQLite B-Tree pages, indexes, and foreign-key constraints verified 100% consistent.",
+                            ),
+                        };
+
+                        // Health Status Card
+                        egui::Frame::group(ui.style()).show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.heading(format!("{status_icon} Database Status:"));
+                                ui.colored_label(status_color, egui::RichText::new(format!("[{status}]")).size(20.0).strong());
+                            });
+                            ui.colored_label(status_color, status_desc);
+                            ui.add_space(4.0);
+                            ui.horizontal(|ui| {
+                                ui.label(format!("B-Tree Integrity: {}", if integrity_ok { "PASS (ok)" } else { "FAIL" }));
+                                ui.separator();
+                                ui.label(format!("Foreign Key Violations: {} orphans", fk_count));
+                                ui.separator();
+                                ui.label(format!("Inspected Tables: {}", rep["total_tables"]));
+                            });
+                        });
+
+                        ui.add_space(6.0);
+
+                        // If issues found, show details
+                        if !is_healthy {
+                            ui.strong("Detected Anomalies & Inconsistencies:");
+                            if let Some(errs) = rep["integrity_errors"].as_array() {
+                                for err in errs {
+                                    ui.colored_label(Color32::from_rgb(239, 68, 68), format!("• [B-Tree Corruption] {}", err.as_str().unwrap_or("")));
+                                }
+                            }
+                            if let Some(violations) = fks {
+                                for v in violations {
+                                    ui.colored_label(amber, format!(
+                                        "• [FK Orphan Violation] Table '{}' rowid {} -> non-existent row in '{}' (constraint fkid {})",
+                                        v["table"].as_str().unwrap_or(""),
+                                        v["rowid"],
+                                        v["target_table"].as_str().unwrap_or(""),
+                                        v["fkid"]
+                                    ));
+                                }
+                            }
+                            ui.separator();
+                        }
+
+                        // Automated Repair Action Center
+                        ui.heading("Automated Repair & Salvage Center");
+                        ui.horizontal_wrapped(|ui| {
+                            egui::Frame::group(ui.style()).show(ui, |ui| {
+                                ui.set_min_width(260.0);
+                                ui.colored_label(emerald_bright, "⚡ Auto-Repair Sequence");
+                                ui.weak("Runs Reindex + Purge FK Orphans + Vacuum defrag in safe sequence.");
+                                ui.add_space(4.0);
+                                if ui.button("🔧 Execute Auto-Repair").clicked() {
+                                    action_to_run = Some("auto");
+                                }
+                            });
+
+                            egui::Frame::group(ui.style()).show(ui, |ui| {
+                                ui.set_min_width(260.0);
+                                ui.colored_label(sky_blue, "🔨 Rebuild B-Tree Indexes");
+                                ui.weak("Rebuilds all database indexes from table data without modifying rows.");
+                                ui.add_space(4.0);
+                                if ui.button("🔨 Execute REINDEX").clicked() {
+                                    action_to_run = Some("reindex");
+                                }
+                            });
+
+                            egui::Frame::group(ui.style()).show(ui, |ui| {
+                                ui.set_min_width(260.0);
+                                ui.colored_label(amber, "🧹 Purge Orphaned FK Rows");
+                                ui.weak("Deletes orphaned child records that violate foreign key integrity.");
+                                ui.add_space(4.0);
+                                if ui.button("🧹 Purge FK Orphans").clicked() {
+                                    action_to_run = Some("purge_orphans");
+                                }
+                            });
+
+                            egui::Frame::group(ui.style()).show(ui, |ui| {
+                                ui.set_min_width(260.0);
+                                ui.colored_label(Color32::from_rgb(244, 63, 94), "🛡️ Salvage & Clean Clone");
+                                ui.weak("Recovers surviving schemas and rows row-by-row into a brand new clean file.");
+                                ui.add_space(2.0);
+                                ui.horizontal(|ui| {
+                                    ui.label("Path:");
+                                    ui.text_edit_singleline(&mut self.salvage_path);
+                                });
+                                if ui.button("🛡️ Salvage to Clean Clone").clicked() {
+                                    action_to_run = Some("salvage");
+                                }
+                            });
+                        });
+
+                        // Show last repair output
+                        if let Some(ref rep_res) = self.repair_report {
+                            ui.separator();
+                            ui.strong("Last Repair Execution Log:");
+                            egui::Frame::group(ui.style()).show(ui, |ui| {
+                                ui.monospace(serde_json::to_string_pretty(rep_res).unwrap_or_default());
+                            });
+                        }
+                    }
+                } else {
+                    ui.label("Click 'Run Full Diagnostic Scan' above to inspect database B-tree pages and relational integrity.");
+                }
+
+                if let Some(act) = action_to_run {
+                    self.run_repair(act);
                 }
             }
             ActiveTab::Export => {

@@ -239,7 +239,7 @@ async fn test_hybrid_rag_search() -> Result<(), Box<dyn std::error::Error>> {
 #[tokio::test]
 async fn test_command_registry_and_describe() -> Result<(), Box<dyn std::error::Error>> {
     let registry = databasecraft_core::command_registry();
-    assert_eq!(registry.len(), 25);
+    assert_eq!(registry.len(), 27);
 
     for cmd in &registry {
         assert!(!cmd.id.is_empty());
@@ -459,6 +459,54 @@ async fn test_ai_document_ingest_and_dedupe() -> Result<(), Box<dyn std::error::
 
     assert_eq!(dedupe_res["success"], true);
     assert!(dedupe_res["duplicates_found"].as_u64().unwrap_or(0) >= 1);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_diagnose_and_repair_inconsistent_database() -> Result<(), Box<dyn std::error::Error>> {
+    let store = DatabaseStore::open_in_memory()?;
+
+    // 1. Initially healthy
+    let diag1 = dispatch(Command::Diagnose, &store).await;
+    assert_eq!(diag1["success"], true);
+    assert_eq!(diag1["report"]["status"], "HEALTHY");
+
+    // 2. Introduce deliberate relational inconsistency: disable FK temporarily to insert orphan
+    store.execute("CREATE TABLE authors (id INTEGER PRIMARY KEY, name TEXT);")?;
+    store.execute("CREATE TABLE books (id INTEGER PRIMARY KEY, title TEXT, author_id INTEGER REFERENCES authors(id));")?;
+    
+    // Insert orphan book referencing non-existent author_id 999
+    store.execute("PRAGMA foreign_keys = OFF;")?;
+    store.execute("INSERT INTO books VALUES (1, 'Orphaned Novel', 999);")?;
+    store.execute("PRAGMA foreign_keys = ON;")?;
+
+    // 3. Diagnose should detect inconsistency as DEGRADED
+    let diag2 = dispatch(Command::Diagnose, &store).await;
+    assert_eq!(diag2["success"], true);
+    assert_eq!(diag2["report"]["status"], "DEGRADED");
+    let violations = diag2["report"]["fk_violations"].as_array().ok_or("missing fk_violations")?;
+    assert_eq!(violations.len(), 1);
+    assert_eq!(violations[0]["table"], "books");
+    assert_eq!(violations[0]["target_table"], "authors");
+
+    // 4. Auto-repair should purge orphan and return to HEALTHY
+    let repair_res = dispatch(
+        Command::Repair {
+            action: "auto".to_string(),
+            salvage_path: None,
+        },
+        &store,
+    )
+    .await;
+
+    assert_eq!(repair_res["success"], true);
+    assert_eq!(repair_res["report"]["orphans_purged"], 1);
+    assert_eq!(repair_res["report"]["final_health_status"], "HEALTHY");
+
+    // 5. Verify database is once again HEALTHY
+    let diag3 = dispatch(Command::Diagnose, &store).await;
+    assert_eq!(diag3["report"]["status"], "HEALTHY");
 
     Ok(())
 }

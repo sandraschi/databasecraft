@@ -55,6 +55,8 @@ pub const CMD_AI_INGEST_DOCUMENT: &str = "ai.ingest_document";
 pub const CMD_DB_DATA_PROFILE: &str = "db.data_profile";
 pub const CMD_DB_VACUUM: &str = "db.vacuum";
 pub const CMD_DB_BACKUP: &str = "db.backup";
+pub const CMD_DB_DIAGNOSE: &str = "db.diagnose";
+pub const CMD_DB_REPAIR: &str = "db.repair";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "command", content = "params")]
@@ -161,6 +163,11 @@ pub enum Command {
     Vacuum,
     Backup {
         path: String,
+    },
+    Diagnose,
+    Repair {
+        action: String,
+        salvage_path: Option<String>,
     },
 }
 
@@ -592,6 +599,54 @@ fn execute_dispatch(cmd: Command, store: &DatabaseStore) -> Result<Value, Databa
                 "backup_path": path,
             }))
         }
+        Command::Diagnose => {
+            let diag = store.diagnose().map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+            Ok(json!({
+                "success": true,
+                "report": diag,
+            }))
+        }
+        Command::Repair { action, salvage_path } => {
+            match action.to_lowercase().as_str() {
+                "reindex" => {
+                    store.reindex_all().map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+                    let diag = store.diagnose().map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+                    Ok(json!({
+                        "success": true,
+                        "action": "reindex",
+                        "status": diag.status,
+                    }))
+                }
+                "purge_orphans" => {
+                    let purged = store.purge_foreign_key_orphans().map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+                    let diag = store.diagnose().map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+                    Ok(json!({
+                        "success": true,
+                        "action": "purge_orphans",
+                        "orphans_purged": purged,
+                        "status": diag.status,
+                    }))
+                }
+                "salvage" => {
+                    let target = salvage_path.unwrap_or_else(|| "salvaged_database.dbcraft".to_string());
+                    let report = store.salvage_to(&target).map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+                    Ok(json!({
+                        "success": true,
+                        "action": "salvage",
+                        "report": report,
+                    }))
+                }
+                _ => {
+                    // Default to auto_repair
+                    let report = store.auto_repair().map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+                    Ok(json!({
+                        "success": true,
+                        "action": "auto_repair",
+                        "report": report,
+                    }))
+                }
+            }
+        }
     }
 }
 
@@ -756,6 +811,18 @@ pub fn command_registry() -> Vec<CommandDescriptor> {
             label: "Backup Database".to_string(),
             description: "Create atomic backup copy of active database into specified file path".to_string(),
             params: json!({ "path": "string" }),
+        },
+        CommandDescriptor {
+            id: CMD_DB_DIAGNOSE.to_string(),
+            label: "Diagnose Database Integrity".to_string(),
+            description: "Run PRAGMA integrity_check and foreign_key_check to detect B-tree corruption and orphaned rows".to_string(),
+            params: json!({}),
+        },
+        CommandDescriptor {
+            id: CMD_DB_REPAIR.to_string(),
+            label: "Repair Database".to_string(),
+            description: "Execute database repair: reindex corrupted B-trees, purge orphaned FK records, or salvage to clean clone".to_string(),
+            params: json!({ "action": "string (auto|reindex|purge_orphans|salvage)", "salvage_path": "string (optional)" }),
         },
     ]
 }

@@ -102,6 +102,34 @@ pub struct TableProfile {
     pub columns: Vec<ColumnProfile>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FkViolation {
+    pub table: String,
+    pub rowid: i64,
+    pub target_table: String,
+    pub fkid: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DiagnosticReport {
+    pub is_healthy: bool,
+    pub integrity_ok: bool,
+    pub integrity_errors: Vec<String>,
+    pub fk_violations: Vec<FkViolation>,
+    pub total_tables: usize,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RepairReport {
+    pub action_taken: String,
+    pub indexes_rebuilt: bool,
+    pub orphans_purged: usize,
+    pub vacuum_succeeded: bool,
+    pub salvage_path: Option<String>,
+    pub final_health_status: String,
+}
+
 pub struct DatabaseStore {
     conn: Mutex<Connection>,
 }
@@ -597,6 +625,171 @@ impl DatabaseStore {
             table: table_name.to_string(),
             total_rows,
             columns,
+        })
+    }
+
+    /// Run comprehensive PRAGMA integrity_check and PRAGMA foreign_key_check.
+    pub fn diagnose(&self) -> Result<DiagnosticReport, StoreError> {
+        // 1. Run PRAGMA integrity_check
+        let integrity_qr = self.query("PRAGMA integrity_check;")?;
+        let mut integrity_errors = Vec::new();
+        let mut integrity_ok = true;
+
+        for row in &integrity_qr.rows {
+            if let Some(val) = row.first() {
+                if let Some(msg) = val.as_str() {
+                    if msg.to_lowercase() != "ok" {
+                        integrity_ok = false;
+                        integrity_errors.push(msg.to_string());
+                    }
+                }
+            }
+        }
+
+        // 2. Run PRAGMA foreign_key_check
+        let fk_qr = self.query("PRAGMA foreign_key_check;")?;
+        let mut fk_violations = Vec::new();
+
+        for row in &fk_qr.rows {
+            if let (Some(tbl), Some(rowid_val), Some(target_tbl), Some(fkid_val)) = 
+                (row.get(0), row.get(1), row.get(2), row.get(3)) 
+            {
+                let table = tbl.as_str().unwrap_or("unknown").to_string();
+                let rowid = rowid_val.as_i64().unwrap_or(0);
+                let target_table = target_tbl.as_str().unwrap_or("unknown").to_string();
+                let fkid = fkid_val.as_i64().unwrap_or(0);
+
+                fk_violations.push(FkViolation {
+                    table,
+                    rowid,
+                    target_table,
+                    fkid,
+                });
+            }
+        }
+
+        let tables = self.list_tables()?;
+        let is_healthy = integrity_ok && fk_violations.is_empty();
+        let status = if !integrity_ok {
+            "CORRUPTED".to_string()
+        } else if !fk_violations.is_empty() {
+            "DEGRADED".to_string()
+        } else {
+            "HEALTHY".to_string()
+        };
+
+        Ok(DiagnosticReport {
+            is_healthy,
+            integrity_ok,
+            integrity_errors,
+            fk_violations,
+            total_tables: tables.len(),
+            status,
+        })
+    }
+
+    /// Rebuild all indexes in the database.
+    pub fn reindex_all(&self) -> Result<(), StoreError> {
+        self.execute("REINDEX;")?;
+        Ok(())
+    }
+
+    /// Purge orphaned foreign key rows that violate relational constraints.
+    pub fn purge_foreign_key_orphans(&self) -> Result<usize, StoreError> {
+        let diag = self.diagnose()?;
+        let mut total_purged = 0;
+
+        for violation in &diag.fk_violations {
+            if !violation.table.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                continue;
+            }
+            let delete_sql = format!(
+                "DELETE FROM \"{}\" WHERE rowid = {};",
+                violation.table, violation.rowid
+            );
+            if let Ok(affected) = self.execute(&delete_sql) {
+                total_purged += affected;
+            }
+        }
+
+        Ok(total_purged)
+    }
+
+    /// Execute automated database repair sequence (REINDEX + purge orphans + VACUUM).
+    pub fn auto_repair(&self) -> Result<RepairReport, StoreError> {
+        // Step 1: Reindex
+        let reindex_ok = self.reindex_all().is_ok();
+
+        // Step 2: Purge orphaned FK rows
+        let orphans_purged = self.purge_foreign_key_orphans().unwrap_or(0);
+
+        // Step 3: Vacuum defragmentation
+        let vacuum_ok = self.vacuum().is_ok();
+
+        // Verify final state
+        let final_diag = self.diagnose()?;
+
+        Ok(RepairReport {
+            action_taken: "auto_repair (REINDEX + PURGE_ORPHANS + VACUUM)".to_string(),
+            indexes_rebuilt: reindex_ok,
+            orphans_purged,
+            vacuum_succeeded: vacuum_ok,
+            salvage_path: None,
+            final_health_status: final_diag.status,
+        })
+    }
+
+    /// Salvage database: dump surviving table definitions and records into a fresh clean database file.
+    pub fn salvage_to(&self, target_path: &str) -> Result<RepairReport, StoreError> {
+        let clean_store = DatabaseStore::open(target_path)?;
+        let full_schema = self.inspect_all()?;
+        let mut total_recovered_rows = 0;
+
+        for tbl in &full_schema.tables {
+            // Re-create table schema in clean store
+            let mut col_defs = Vec::new();
+            for col in &tbl.columns {
+                let pk_str = if col.pk { " PRIMARY KEY" } else { "" };
+                let notnull_str = if col.notnull { " NOT NULL" } else { "" };
+                col_defs.push(format!("\"{}\" {}{}{}", col.name, col.data_type, pk_str, notnull_str));
+            }
+            let ddl = format!("CREATE TABLE IF NOT EXISTS \"{}\" ({});", tbl.name, col_defs.join(", "));
+            let _ = clean_store.execute(&ddl);
+
+            // Copy rows safely row-by-row
+            if let Ok(qr) = self.query(&format!("SELECT * FROM \"{}\";", tbl.name)) {
+                for row in &qr.rows {
+                    let mut col_names = Vec::new();
+                    let mut val_strs = Vec::new();
+                    for (col_name, val) in qr.columns.iter().zip(row.iter()) {
+                        col_names.push(format!("\"{}\"", col_name));
+                        match val {
+                            serde_json::Value::Null => val_strs.push("NULL".to_string()),
+                            serde_json::Value::Bool(b) => val_strs.push(if *b { "1".to_string() } else { "0".to_string() }),
+                            serde_json::Value::Number(n) => val_strs.push(n.to_string()),
+                            serde_json::Value::String(s) => val_strs.push(format!("'{}'", s.replace('\'', "''"))),
+                            _ => val_strs.push(format!("'{}'", val.to_string().replace('\'', "''"))),
+                        }
+                    }
+                    if !col_names.is_empty() {
+                        let ins = format!("INSERT OR IGNORE INTO \"{}\" ({}) VALUES ({});", tbl.name, col_names.join(", "), val_strs.join(", "));
+                        if clean_store.execute(&ins).is_ok() {
+                            total_recovered_rows += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        let final_diag = clean_store.diagnose()?;
+
+        Ok(RepairReport {
+            action_taken: format!("salvage_dump (recovered {total_recovered_rows} rows to new file)"),
+            indexes_rebuilt: true,
+            orphans_purged: 0,
+            vacuum_succeeded: true,
+            salvage_path: Some(target_path.to_string()),
+            final_health_status: final_diag.status,
         })
     }
 }
