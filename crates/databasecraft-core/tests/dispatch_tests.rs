@@ -239,7 +239,7 @@ async fn test_hybrid_rag_search() -> Result<(), Box<dyn std::error::Error>> {
 #[tokio::test]
 async fn test_command_registry_and_describe() -> Result<(), Box<dyn std::error::Error>> {
     let registry = databasecraft_core::command_registry();
-    assert_eq!(registry.len(), 17);
+    assert_eq!(registry.len(), 25);
 
     for cmd in &registry {
         assert!(!cmd.id.is_empty());
@@ -342,6 +342,123 @@ async fn test_rag_embed_and_semantic_search() -> Result<(), Box<dyn std::error::
     let top = hits.first().ok_or("missing top hit")?;
     assert_eq!(top["id"], 42);
     assert_eq!(top["metadata"]["title"], "Acoustic Pro 900");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_ai_nl_to_sql_and_profile() -> Result<(), Box<dyn std::error::Error>> {
+    let store = DatabaseStore::open_in_memory()?;
+    dispatch(
+        Command::SeedDemo {
+            name: "ecommerce".to_string(),
+        },
+        &store,
+    )
+    .await;
+
+    // Test NLQ
+    let nlq_res = dispatch(
+        Command::AiNlToSql {
+            prompt: "find products with price > 100 limit 5".to_string(),
+        },
+        &store,
+    )
+    .await;
+
+    assert_eq!(nlq_res["success"], true);
+    assert!(nlq_res["sql"].as_str().unwrap_or("").contains("SELECT"));
+    assert!(nlq_res["sql"].as_str().unwrap_or("").contains("products"));
+    assert_eq!(nlq_res["read_only"], true);
+
+    // Test DataProfile
+    let profile_res = dispatch(
+        Command::DataProfile {
+            table: "products".to_string(),
+        },
+        &store,
+    )
+    .await;
+
+    assert_eq!(profile_res["success"], true);
+    assert_eq!(profile_res["profile"]["table"], "products");
+    assert!(profile_res["profile"]["total_rows"].as_u64().unwrap_or(0) > 0);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_ai_schema_advisor_and_synthetic() -> Result<(), Box<dyn std::error::Error>> {
+    let store = DatabaseStore::open_in_memory()?;
+    dispatch(
+        Command::SeedDemo {
+            name: "ecommerce".to_string(),
+        },
+        &store,
+    )
+    .await;
+
+    // Test Schema Advisor
+    let adv_res = dispatch(Command::AiSchemaAdvisor, &store).await;
+    assert_eq!(adv_res["success"], true);
+    assert!(adv_res["total_tables"].as_u64().unwrap_or(0) >= 2);
+
+    // Test Synthetic Generator
+    let syn_res = dispatch(
+        Command::AiGenerateSynthetic {
+            table: "products".to_string(),
+            count: 3,
+            insert: Some(true),
+        },
+        &store,
+    )
+    .await;
+
+    assert_eq!(syn_res["success"], true);
+    assert_eq!(syn_res["inserted"], true);
+    let records = syn_res["records"].as_array().ok_or("missing records")?;
+    assert_eq!(records.len(), 3);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_ai_document_ingest_and_dedupe() -> Result<(), Box<dyn std::error::Error>> {
+    let store = DatabaseStore::open_in_memory()?;
+
+    // Test Document Ingest
+    let doc_content = "# Scene 1\nCamera tracks actor across neon bridge.\n# Scene 2\nActor enters antique store.";
+    let ingest_res = dispatch(
+        Command::AiIngestDocument {
+            title: "Cyberpunk Script Draft".to_string(),
+            content: doc_content.to_string(),
+            tags: Some(vec!["film".to_string(), "cyberpunk".to_string()]),
+        },
+        &store,
+    )
+    .await;
+
+    assert_eq!(ingest_res["success"], true);
+    assert_eq!(ingest_res["chunks_indexed"], 2);
+
+    // Test Semantic Dedupe
+    store.execute("CREATE TABLE tags (id INTEGER PRIMARY KEY, label TEXT);")?;
+    store.execute("INSERT INTO tags VALUES (1, 'Wireless Bluetooth Headphones');")?;
+    store.execute("INSERT INTO tags VALUES (2, 'Bluetooth Wireless Headphone');")?;
+    store.execute("INSERT INTO tags VALUES (3, 'Ceramic Coffee Mug');")?;
+
+    let dedupe_res = dispatch(
+        Command::AiSemanticDedupe {
+            table: "tags".to_string(),
+            column: "label".to_string(),
+            threshold: Some(0.60),
+        },
+        &store,
+    )
+    .await;
+
+    assert_eq!(dedupe_res["success"], true);
+    assert!(dedupe_res["duplicates_found"].as_u64().unwrap_or(0) >= 1);
 
     Ok(())
 }

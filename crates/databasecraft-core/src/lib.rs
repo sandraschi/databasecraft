@@ -10,6 +10,7 @@
 #![deny(clippy::unimplemented)]
 #![deny(clippy::todo)]
 
+pub mod ai;
 pub mod error;
 pub mod export;
 pub mod models;
@@ -46,6 +47,14 @@ pub const CMD_FTS_SEARCH: &str = "rag.fts_search";
 pub const CMD_HYBRID_SEARCH: &str = "rag.hybrid_search";
 pub const CMD_RAG_EMBED: &str = "rag.embed_text";
 pub const CMD_RAG_ASK: &str = "rag.semantic_search";
+pub const CMD_AI_NL_TO_SQL: &str = "ai.nl_to_sql";
+pub const CMD_AI_SEMANTIC_DEDUPE: &str = "ai.semantic_dedupe";
+pub const CMD_AI_SCHEMA_ADVISOR: &str = "ai.schema_advisor";
+pub const CMD_AI_GENERATE_SYNTHETIC: &str = "ai.generate_synthetic";
+pub const CMD_AI_INGEST_DOCUMENT: &str = "ai.ingest_document";
+pub const CMD_DB_DATA_PROFILE: &str = "db.data_profile";
+pub const CMD_DB_VACUUM: &str = "db.vacuum";
+pub const CMD_DB_BACKUP: &str = "db.backup";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "command", content = "params")]
@@ -126,6 +135,32 @@ pub enum Command {
         query: String,
         dimensions: Option<usize>,
         top_k: Option<usize>,
+    },
+    AiNlToSql {
+        prompt: String,
+    },
+    AiSemanticDedupe {
+        table: String,
+        column: String,
+        threshold: Option<f32>,
+    },
+    AiSchemaAdvisor,
+    AiGenerateSynthetic {
+        table: String,
+        count: usize,
+        insert: Option<bool>,
+    },
+    AiIngestDocument {
+        title: String,
+        content: String,
+        tags: Option<Vec<String>>,
+    },
+    DataProfile {
+        table: String,
+    },
+    Vacuum,
+    Backup {
+        path: String,
     },
 }
 
@@ -461,6 +496,102 @@ fn execute_dispatch(cmd: Command, store: &DatabaseStore) -> Result<Value, Databa
                 }))
             }
         }
+        Command::AiNlToSql { prompt } => {
+            let full_schema = store.inspect_all().map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+            let nlq = ai::nl_to_sql(&prompt, &full_schema)?;
+            Ok(json!({
+                "success": true,
+                "prompt": nlq.prompt,
+                "sql": nlq.sql,
+                "explanation": nlq.explanation,
+                "read_only": nlq.read_only,
+                "target_table": nlq.target_table,
+                "confidence": nlq.confidence,
+            }))
+        }
+        Command::AiSemanticDedupe {
+            table,
+            column,
+            threshold,
+        } => {
+            validate_identifier(&table)?;
+            validate_identifier(&column)?;
+            let t = threshold.unwrap_or(0.75);
+            let res = ai::semantic_dedupe(store, &table, &column, t)?;
+            Ok(json!({
+                "success": true,
+                "table": res.table,
+                "column": res.column,
+                "threshold": res.threshold,
+                "pairs_evaluated": res.pairs_evaluated,
+                "duplicates_found": res.duplicates_found,
+                "clusters": res.clusters,
+            }))
+        }
+        Command::AiSchemaAdvisor => {
+            let full_schema = store.inspect_all().map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+            let res = ai::schema_advisor(store, &full_schema)?;
+            Ok(json!({
+                "success": true,
+                "total_tables": res.total_tables,
+                "issues_found": res.issues_found,
+                "recommendations": res.recommendations,
+            }))
+        }
+        Command::AiGenerateSynthetic {
+            table,
+            count,
+            insert,
+        } => {
+            validate_identifier(&table)?;
+            let should_insert = insert.unwrap_or(false);
+            let res = ai::generate_synthetic(store, &table, count, should_insert)?;
+            Ok(json!({
+                "success": true,
+                "table": res.table,
+                "requested_count": res.requested_count,
+                "inserted": res.inserted,
+                "records": res.generated_records,
+            }))
+        }
+        Command::AiIngestDocument {
+            title,
+            content,
+            tags,
+        } => {
+            let t_tags = tags.unwrap_or_default();
+            let res = ai::ingest_document(store, &title, &content, &t_tags)?;
+            Ok(json!({
+                "success": true,
+                "document_title": res.document_title,
+                "chunks_indexed": res.chunks_indexed,
+                "target_table": res.target_table,
+                "vector_table": res.vector_table,
+                "fts_table": res.fts_table,
+            }))
+        }
+        Command::DataProfile { table } => {
+            validate_identifier(&table)?;
+            let profile = store.profile_table(&table).map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+            Ok(json!({
+                "success": true,
+                "profile": profile,
+            }))
+        }
+        Command::Vacuum => {
+            store.vacuum().map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+            Ok(json!({
+                "success": true,
+                "status": "vacuum completed",
+            }))
+        }
+        Command::Backup { path } => {
+            store.backup_into(&path).map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+            Ok(json!({
+                "success": true,
+                "backup_path": path,
+            }))
+        }
     }
 }
 
@@ -577,6 +708,54 @@ pub fn command_registry() -> Vec<CommandDescriptor> {
             label: "Semantic Text Search".to_string(),
             description: "High-level semantic text search executing in-process embedding + hybrid RRF or vector ranking".to_string(),
             params: json!({ "vector_table": "string", "fts_table": "string (optional)", "query": "string", "dimensions": "number (optional)", "top_k": "number (optional)" }),
+        },
+        CommandDescriptor {
+            id: CMD_AI_NL_TO_SQL.to_string(),
+            label: "Natural Language to SQL".to_string(),
+            description: "Translate natural language prompt into schema-aware SQLite query with explanation and safety fences".to_string(),
+            params: json!({ "prompt": "string" }),
+        },
+        CommandDescriptor {
+            id: CMD_AI_SEMANTIC_DEDUPE.to_string(),
+            label: "Semantic Deduplication".to_string(),
+            description: "Detect near-duplicate records in a text column using vector cosine similarity".to_string(),
+            params: json!({ "table": "string", "column": "string", "threshold": "number (optional, default 0.75)" }),
+        },
+        CommandDescriptor {
+            id: CMD_AI_SCHEMA_ADVISOR.to_string(),
+            label: "Schema & Index Advisor".to_string(),
+            description: "Inspect schema to recommend missing foreign key indexes, primary keys, and FTS5 search candidates".to_string(),
+            params: json!({}),
+        },
+        CommandDescriptor {
+            id: CMD_AI_GENERATE_SYNTHETIC.to_string(),
+            label: "Generate Synthetic Rows".to_string(),
+            description: "Generate realistic context-aware synthetic rows matching column types and foreign key integrity".to_string(),
+            params: json!({ "table": "string", "count": "number", "insert": "boolean (optional, default false)" }),
+        },
+        CommandDescriptor {
+            id: CMD_AI_INGEST_DOCUMENT.to_string(),
+            label: "Ingest & Chunk Document".to_string(),
+            description: "Chunk markdown/text document into sections and ingest into relational, vector, and FTS5 tables".to_string(),
+            params: json!({ "title": "string", "content": "string", "tags": "array of strings (optional)" }),
+        },
+        CommandDescriptor {
+            id: CMD_DB_DATA_PROFILE.to_string(),
+            label: "Profile Table Data".to_string(),
+            description: "Compute cardinality, null ratios, min/max bounds, and distinct counts across table columns".to_string(),
+            params: json!({ "table": "string" }),
+        },
+        CommandDescriptor {
+            id: CMD_DB_VACUUM.to_string(),
+            label: "Vacuum Database".to_string(),
+            description: "Rebuild database file to reclaim unused space and defragment".to_string(),
+            params: json!({}),
+        },
+        CommandDescriptor {
+            id: CMD_DB_BACKUP.to_string(),
+            label: "Backup Database".to_string(),
+            description: "Create atomic backup copy of active database into specified file path".to_string(),
+            params: json!({ "path": "string" }),
         },
     ]
 }

@@ -85,6 +85,23 @@ pub struct QueryResult {
     pub row_count: usize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ColumnProfile {
+    pub name: String,
+    pub data_type: String,
+    pub null_count: usize,
+    pub distinct_count: usize,
+    pub min_value: Option<String>,
+    pub max_value: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TableProfile {
+    pub table: String,
+    pub total_rows: usize,
+    pub columns: Vec<ColumnProfile>,
+}
+
 pub struct DatabaseStore {
     conn: Mutex<Connection>,
 }
@@ -500,6 +517,87 @@ impl DatabaseStore {
         });
         hybrid_matches.truncate(top_k);
         Ok(hybrid_matches)
+    }
+
+    /// Vacuum the database to reclaim space and defragment.
+    pub fn vacuum(&self) -> Result<(), StoreError> {
+        self.execute("VACUUM;")?;
+        Ok(())
+    }
+
+    /// Backup the database into another file using SQLite VACUUM INTO.
+    pub fn backup_into(&self, target_path: &str) -> Result<(), StoreError> {
+        let escaped = target_path.replace('\'', "''");
+        let sql = format!("VACUUM INTO '{escaped}';");
+        self.execute(&sql)?;
+        Ok(())
+    }
+
+    /// List existing indexes for a given table.
+    pub fn list_indexes(&self, table_name: &str) -> Result<Vec<String>, StoreError> {
+        if !table_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            return Err(StoreError::InvalidInput(format!("table name '{table_name}' contains illegal characters")));
+        }
+        let qr = self.query(&format!("PRAGMA index_list(\"{table_name}\");"))?;
+        let mut idxs = Vec::new();
+        for row in qr.rows {
+            if let Some(val) = row.get(1) {
+                if let Some(s) = val.as_str() {
+                    idxs.push(s.to_string());
+                }
+            }
+        }
+        Ok(idxs)
+    }
+
+    /// Profile table columns for distribution, null counts, and distinct cardinality.
+    pub fn profile_table(&self, table_name: &str) -> Result<TableProfile, StoreError> {
+        let schema = self.table_schema(table_name)?;
+        let count_qr = self.query(&format!("SELECT COUNT(*) FROM \"{table_name}\";"))?;
+        let total_rows = count_qr
+            .rows
+            .first()
+            .and_then(|r| r.first())
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as usize;
+
+        let mut columns = Vec::with_capacity(schema.columns.len());
+        for col in &schema.columns {
+            let col_name = &col.name;
+            let stat_sql = format!(
+                "SELECT \
+                    COUNT(CASE WHEN \"{col_name}\" IS NULL THEN 1 END) AS null_cnt, \
+                    COUNT(DISTINCT \"{col_name}\") AS dist_cnt, \
+                    MIN(\"{col_name}\") AS min_val, \
+                    MAX(\"{col_name}\") AS max_val \
+                 FROM \"{table_name}\";"
+            );
+            let stat_qr = self.query(&stat_sql)?;
+            let (null_count, distinct_count, min_val, max_val) = if let Some(row) = stat_qr.rows.first() {
+                let nulls = row.get(0).and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                let dist = row.get(1).and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                let min_str = row.get(2).filter(|v| !v.is_null()).map(|v| v.to_string());
+                let max_str = row.get(3).filter(|v| !v.is_null()).map(|v| v.to_string());
+                (nulls, dist, min_str, max_str)
+            } else {
+                (0, 0, None, None)
+            };
+
+            columns.push(ColumnProfile {
+                name: col_name.clone(),
+                data_type: col.data_type.clone(),
+                null_count,
+                distinct_count,
+                min_value: min_val,
+                max_value: max_val,
+            });
+        }
+
+        Ok(TableProfile {
+            table: table_name.to_string(),
+            total_rows,
+            columns,
+        })
     }
 }
 

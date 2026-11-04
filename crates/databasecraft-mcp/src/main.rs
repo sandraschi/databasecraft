@@ -116,6 +116,78 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Translate English/natural language prompt into schema-aware SQL with safety fences
+    Nlq {
+        prompt: String,
+        #[arg(long)]
+        db: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Detect near-duplicate records in a text column using vector embeddings
+    Dedupe {
+        table: String,
+        column: String,
+        #[arg(long)]
+        threshold: Option<f32>,
+        #[arg(long)]
+        db: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Inspect schema to recommend missing foreign key indexes, primary keys, and FTS5 virtual tables
+    Advisor {
+        #[arg(long)]
+        db: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Generate realistic context-aware synthetic rows matching column types and foreign keys
+    Synthetic {
+        table: String,
+        #[arg(long, default_value = "5")]
+        count: usize,
+        #[arg(long)]
+        insert: bool,
+        #[arg(long)]
+        db: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Ingest and chunk markdown or text document into relational, vector, and FTS5 tables
+    Ingest {
+        title: String,
+        content: String,
+        #[arg(long)]
+        tags: Vec<String>,
+        #[arg(long)]
+        db: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Profile table columns for cardinality, null ratios, min/max bounds, and distinct counts
+    Profile {
+        table: String,
+        #[arg(long)]
+        db: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Rebuild database file to reclaim unused space and defragment
+    Vacuum {
+        #[arg(long)]
+        db: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Create atomic backup copy of active database into specified file path
+    Backup {
+        path: String,
+        #[arg(long)]
+        db: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
     /// List all registered commands in the Craft command bus (id, label, signature)
     #[command(name = "commands")]
     Registry {
@@ -358,6 +430,122 @@ fn main() {
                 }
             }
         }
+        Commands::Nlq { prompt, db, json } => {
+            let store = open_store(db.as_deref());
+            let res = rt.block_on(dispatch(Command::AiNlToSql { prompt }, &store));
+            if json {
+                println!("{res}");
+            } else if res["success"] == true {
+                println!("Synthesized SQL: {}", res["sql"]);
+                println!("Explanation:    {}", res["explanation"]);
+                println!("Target Table:   {}", res["target_table"]);
+                println!("Confidence:     {:.2}", res["confidence"].as_f64().unwrap_or(0.0));
+            } else {
+                eprintln!("Error: {}", res["error"]);
+            }
+        }
+        Commands::Dedupe { table, column, threshold, db, json } => {
+            let store = open_store(db.as_deref());
+            let res = rt.block_on(dispatch(Command::AiSemanticDedupe { table, column, threshold }, &store));
+            if json {
+                println!("{res}");
+            } else if res["success"] == true {
+                println!("Evaluated {} pairs, found {} duplicate clusters:", res["pairs_evaluated"], res["duplicates_found"]);
+                if let Some(clusters) = res["clusters"].as_array() {
+                    for c in clusters {
+                        println!("  - [{:.1}%] {}", c["similarity"].as_f64().unwrap_or(0.0) * 100.0, c["recommendation"]);
+                    }
+                }
+            } else {
+                eprintln!("Error: {}", res["error"]);
+            }
+        }
+        Commands::Advisor { db, json } => {
+            let store = open_store(db.as_deref());
+            let res = rt.block_on(dispatch(Command::AiSchemaAdvisor, &store));
+            if json {
+                println!("{res}");
+            } else if res["success"] == true {
+                println!("Schema Advisor Analysis ({} tables inspected, {} recommendations):", res["total_tables"], res["issues_found"]);
+                if let Some(recs) = res["recommendations"].as_array() {
+                    for r in recs {
+                        println!("  [{}] Table {}: {}", r["priority"], r["table"], r["issue"]);
+                        println!("     -> {}", r["recommendation"]);
+                        if let Some(ddl) = r["ddl_fix"].as_str() {
+                            println!("     Fix: {ddl}");
+                        }
+                    }
+                }
+            } else {
+                eprintln!("Error: {}", res["error"]);
+            }
+        }
+        Commands::Synthetic { table, count, insert, db, json } => {
+            let store = open_store(db.as_deref());
+            let res = rt.block_on(dispatch(Command::AiGenerateSynthetic { table, count, insert: Some(insert) }, &store));
+            if json {
+                println!("{res}");
+            } else if res["success"] == true {
+                println!("Generated {} synthetic records for '{}' (inserted: {}):", res["requested_count"], res["table"], res["inserted"]);
+                println!("{}", serde_json::to_string_pretty(&res["records"]).unwrap_or_default());
+            } else {
+                eprintln!("Error: {}", res["error"]);
+            }
+        }
+        Commands::Ingest { title, content, tags, db, json } => {
+            let store = open_store(db.as_deref());
+            let res = rt.block_on(dispatch(Command::AiIngestDocument { title, content, tags: Some(tags) }, &store));
+            if json {
+                println!("{res}");
+            } else if res["success"] == true {
+                println!("Ingested document '{}': {} chunks indexed into '{}', '{}', and '{}'", 
+                    res["document_title"], res["chunks_indexed"], res["target_table"], res["vector_table"], res["fts_table"]);
+            } else {
+                eprintln!("Error: {}", res["error"]);
+            }
+        }
+        Commands::Profile { table, db, json } => {
+            let store = open_store(db.as_deref());
+            let res = rt.block_on(dispatch(Command::DataProfile { table }, &store));
+            if json {
+                println!("{res}");
+            } else if res["success"] == true {
+                let prof = &res["profile"];
+                println!("Profile for table '{}' (total rows: {}):", prof["table"], prof["total_rows"]);
+                if let Some(cols) = prof["columns"].as_array() {
+                    for c in cols {
+                        println!("  - {:20} {:10} | Nulls: {:5} | Distinct: {:5} | Min: {:?} | Max: {:?}",
+                            c["name"].as_str().unwrap_or(""),
+                            c["data_type"].as_str().unwrap_or(""),
+                            c["null_count"],
+                            c["distinct_count"],
+                            c["min_value"],
+                            c["max_value"]
+                        );
+                    }
+                }
+            } else {
+                eprintln!("Error: {}", res["error"]);
+            }
+        }
+        Commands::Vacuum { db, json } => {
+            let store = open_store(db.as_deref());
+            let res = rt.block_on(dispatch(Command::Vacuum, &store));
+            if json {
+                println!("{res}");
+            } else {
+                println!("Vacuum status: {}", res["status"]);
+            }
+        }
+        Commands::Backup { path, db, json } => {
+            let store = open_store(db.as_deref());
+            let res = rt.block_on(dispatch(Command::Backup { path }, &store));
+            if json {
+                println!("{res}");
+            } else {
+                println!("Backup completed to: {}", res["backup_path"]);
+            }
+        }
         Commands::Registry { json } => {
             let registry = command_registry();
             if json {
@@ -529,6 +717,94 @@ pub fn tools_list() -> Value {
                 },
                 "required": ["vector_table", "query"]
             }
+        },
+        {
+            "name": "db_nlq",
+            "description": "Translate natural language prompt into schema-aware SQLite query with explanation and safety fences",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "prompt": { "type": "string", "description": "English query prompt, e.g. 'find products with price > 100 limit 5'" }
+                },
+                "required": ["prompt"]
+            }
+        },
+        {
+            "name": "db_semantic_dedupe",
+            "description": "Analyze text column to find near-duplicate records using vector similarity clustering",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "table": { "type": "string", "description": "Table to analyze" },
+                    "column": { "type": "string", "description": "Text column to embed and compare" },
+                    "threshold": { "type": "number", "description": "Cosine similarity cutoff (default: 0.75)" }
+                },
+                "required": ["table", "column"]
+            }
+        },
+        {
+            "name": "db_schema_advisor",
+            "description": "Inspect database schema for missing foreign key indexes, missing primary keys, and FTS5 candidates",
+            "inputSchema": {
+                "type": "object",
+                "properties": {}
+            }
+        },
+        {
+            "name": "db_generate_synthetic",
+            "description": "Generate realistic domain-specific synthetic rows matching column types and foreign key references",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "table": { "type": "string", "description": "Target table name" },
+                    "count": { "type": "integer", "description": "Number of rows to generate (default: 5)" },
+                    "insert": { "type": "boolean", "description": "Whether to insert directly into table (default: false)" }
+                },
+                "required": ["table"]
+            }
+        },
+        {
+            "name": "db_ingest_document",
+            "description": "Chunk unstructured markdown/text into sections and ingest into relational, vector, and FTS5 tables",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string", "description": "Document title" },
+                    "content": { "type": "string", "description": "Markdown or plain text body" },
+                    "tags": { "type": "array", "items": { "type": "string" }, "description": "Optional taxonomy tags" }
+                },
+                "required": ["title", "content"]
+            }
+        },
+        {
+            "name": "db_data_profile",
+            "description": "Profile table columns for distinct cardinality, null ratios, min/max values, and data types",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "table": { "type": "string", "description": "Table name to profile" }
+                },
+                "required": ["table"]
+            }
+        },
+        {
+            "name": "db_vacuum",
+            "description": "Defragment and reclaim unused disk space in database",
+            "inputSchema": {
+                "type": "object",
+                "properties": {}
+            }
+        },
+        {
+            "name": "db_backup",
+            "description": "Create atomic online backup file of current database",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Target file path for backup (.dbcraft or .sqlite)" }
+                },
+                "required": ["path"]
+            }
         }
     ])
 }
@@ -643,6 +919,44 @@ pub fn call_tool(rt: &Runtime, store: &DatabaseStore, name: &str, args: &Value) 
                 },
                 store,
             ))
+        }
+        "db_nlq" => {
+            let prompt = args["prompt"].as_str().unwrap_or("").to_string();
+            rt.block_on(dispatch(Command::AiNlToSql { prompt }, store))
+        }
+        "db_semantic_dedupe" => {
+            let table = args["table"].as_str().unwrap_or("").to_string();
+            let column = args["column"].as_str().unwrap_or("").to_string();
+            let threshold = args["threshold"].as_f64().map(|f| f as f32);
+            rt.block_on(dispatch(Command::AiSemanticDedupe { table, column, threshold }, store))
+        }
+        "db_schema_advisor" => {
+            rt.block_on(dispatch(Command::AiSchemaAdvisor, store))
+        }
+        "db_generate_synthetic" => {
+            let table = args["table"].as_str().unwrap_or("").to_string();
+            let count = args["count"].as_u64().unwrap_or(5) as usize;
+            let insert = args["insert"].as_bool();
+            rt.block_on(dispatch(Command::AiGenerateSynthetic { table, count, insert }, store))
+        }
+        "db_ingest_document" => {
+            let title = args["title"].as_str().unwrap_or("").to_string();
+            let content = args["content"].as_str().unwrap_or("").to_string();
+            let tags = args["tags"].as_array().map(|arr| {
+                arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect()
+            });
+            rt.block_on(dispatch(Command::AiIngestDocument { title, content, tags }, store))
+        }
+        "db_data_profile" => {
+            let table = args["table"].as_str().unwrap_or("").to_string();
+            rt.block_on(dispatch(Command::DataProfile { table }, store))
+        }
+        "db_vacuum" => {
+            rt.block_on(dispatch(Command::Vacuum, store))
+        }
+        "db_backup" => {
+            let path = args["path"].as_str().unwrap_or("").to_string();
+            rt.block_on(dispatch(Command::Backup { path }, store))
         }
         unknown => json!({ "success": false, "error": format!("Unknown tool '{unknown}'") }),
     }
