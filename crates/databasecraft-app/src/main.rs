@@ -282,7 +282,9 @@ mod tests {
                                     "result": { "content": [{ "type": "text", "text": res.to_string() }] }
                                 })
                             }
-                            _ => serde_json::json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": "Method not found" } }),
+                            _ => {
+                                serde_json::json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": "Method not found" } })
+                            }
                         }
                     } else {
                         serde_json::json!({ "error": "invalid json" })
@@ -300,14 +302,20 @@ mod tests {
         writer
             .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\"}\n")
             .await?;
-        let line1 = lines.next_line().await?.ok_or("no response to initialize")?;
+        let line1 = lines
+            .next_line()
+            .await?
+            .ok_or("no response to initialize")?;
         let resp1: Value = serde_json::from_str(&line1)?;
         assert_eq!(resp1["result"]["protocolVersion"], "2024-11-05");
 
         writer
             .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"db_status\"}}\n")
             .await?;
-        let line2 = lines.next_line().await?.ok_or("no response to tools/call")?;
+        let line2 = lines
+            .next_line()
+            .await?
+            .ok_or("no response to tools/call")?;
         let resp2: Value = serde_json::from_str(&line2)?;
         assert_eq!(resp2["id"], 2);
         let text = resp2["result"]["content"][0]["text"].as_str().unwrap_or("");

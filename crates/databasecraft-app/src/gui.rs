@@ -9,9 +9,7 @@
 #![deny(clippy::unimplemented)]
 #![deny(clippy::todo)]
 
-use databasecraft_core::{
-    dispatch, models::ExportTarget, Command, APP_VERSION, CONTROL_PORT,
-};
+use databasecraft_core::{dispatch, models::ExportTarget, Command, APP_VERSION, CONTROL_PORT};
 use databasecraft_store::DatabaseStore;
 use eframe::egui::{self, Color32, Vec2};
 use serde_json::Value;
@@ -268,9 +266,11 @@ impl DatabaseCraftGui {
         self.synthetic_result = Some(res);
         if insert {
             self.load_table_data(&table);
-            self.status_message = format!("Generated and inserted {count} synthetic rows into '{table}'");
+            self.status_message =
+                format!("Generated and inserted {count} synthetic rows into '{table}'");
         } else {
-            self.status_message = format!("Generated preview of {count} synthetic rows for '{table}'");
+            self.status_message =
+                format!("Generated preview of {count} synthetic rows for '{table}'");
         }
     }
 
@@ -293,7 +293,8 @@ impl DatabaseCraftGui {
         ));
         self.ingest_result = Some(res);
         self.refresh_tables();
-        self.status_message = "Document chunked and ingested into relational, vector, and FTS tables".to_string();
+        self.status_message =
+            "Document chunked and ingested into relational, vector, and FTS tables".to_string();
     }
 
     pub fn run_profiler(&mut self) {
@@ -341,7 +342,8 @@ impl DatabaseCraftGui {
         ));
         self.constructor_result = Some(res);
         self.refresh_tables();
-        self.status_message = format!("Constructed turnkey domain database blueprint '{blueprint}'");
+        self.status_message =
+            format!("Constructed turnkey domain database blueprint '{blueprint}'");
     }
 
     pub fn run_repair(&mut self, action: &str) {
@@ -436,7 +438,10 @@ impl eframe::App for DatabaseCraftGui {
                 ui.colored_label(emerald, "◆");
                 ui.strong(format!("DatabaseCraft v{APP_VERSION}"));
                 ui.separator();
-                ui.colored_label(emerald_bright, format!("Port {CONTROL_PORT} [Plane 2 Active]"));
+                ui.colored_label(
+                    emerald_bright,
+                    format!("Port {CONTROL_PORT} [Plane 2 Active]"),
+                );
                 ui.separator();
 
                 if ui.button("🌱 Seed: Ecommerce").clicked() {
@@ -485,7 +490,9 @@ impl eframe::App for DatabaseCraftGui {
                 }
 
                 if ui.button("🧹 Vacuum").clicked() {
-                    let _ = self.runtime.block_on(dispatch(Command::Vacuum, &self.store));
+                    let _ = self
+                        .runtime
+                        .block_on(dispatch(Command::Vacuum, &self.store));
                     self.status_message = "Database vacuumed and defragmented".to_string();
                 }
 
@@ -517,39 +524,66 @@ impl eframe::App for DatabaseCraftGui {
                 ui.add_space(4.0);
 
                 let nav_button = |ui: &mut egui::Ui, active: bool, label: &str| -> bool {
-                    let text = egui::RichText::new(label)
-                        .color(if active { emerald_bright } else { Color32::WHITE });
+                    let text = egui::RichText::new(label).color(if active {
+                        emerald_bright
+                    } else {
+                        Color32::WHITE
+                    });
                     ui.selectable_label(active, text).clicked()
                 };
 
                 if nav_button(ui, self.active_tab == ActiveTab::Tables, "📊 Table Data") {
                     self.active_tab = ActiveTab::Tables;
                 }
-                if nav_button(ui, self.active_tab == ActiveTab::Query, "⚡ SQL & NLQ Console") {
+                if nav_button(
+                    ui,
+                    self.active_tab == ActiveTab::Query,
+                    "⚡ SQL & NLQ Console",
+                ) {
                     self.active_tab = ActiveTab::Query;
                 }
                 if nav_button(ui, self.active_tab == ActiveTab::Schema, "🗺️ Schema & ERD") {
                     self.active_tab = ActiveTab::Schema;
                 }
-                if nav_button(ui, self.active_tab == ActiveTab::AiWorkflows, "🤖 AI Copilot & Workflows") {
+                if nav_button(
+                    ui,
+                    self.active_tab == ActiveTab::AiWorkflows,
+                    "🤖 AI Copilot & Workflows",
+                ) {
                     self.active_tab = ActiveTab::AiWorkflows;
                 }
                 if nav_button(ui, self.active_tab == ActiveTab::Rag, "🎯 RAG & Vectors") {
                     self.active_tab = ActiveTab::Rag;
                 }
-                if nav_button(ui, self.active_tab == ActiveTab::Profiler, "📈 Data Profiler") {
+                if nav_button(
+                    ui,
+                    self.active_tab == ActiveTab::Profiler,
+                    "📈 Data Profiler",
+                ) {
                     self.active_tab = ActiveTab::Profiler;
                     self.run_profiler();
                 }
-                if nav_button(ui, self.active_tab == ActiveTab::Doctor, "🩺 Doctor & Repair") {
+                if nav_button(
+                    ui,
+                    self.active_tab == ActiveTab::Doctor,
+                    "🩺 Doctor & Repair",
+                ) {
                     self.active_tab = ActiveTab::Doctor;
                     self.run_diagnostics();
                 }
-                if nav_button(ui, self.active_tab == ActiveTab::Constructor, "🏗️ Domain Constructor") {
+                if nav_button(
+                    ui,
+                    self.active_tab == ActiveTab::Constructor,
+                    "🏗️ Domain Constructor",
+                ) {
                     self.active_tab = ActiveTab::Constructor;
                     self.load_blueprints();
                 }
-                if nav_button(ui, self.active_tab == ActiveTab::Export, "📦 Cross-Craft Merge") {
+                if nav_button(
+                    ui,
+                    self.active_tab == ActiveTab::Export,
+                    "📦 Cross-Craft Merge",
+                ) {
                     self.active_tab = ActiveTab::Export;
                 }
 
