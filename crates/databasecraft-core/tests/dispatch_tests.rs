@@ -518,7 +518,7 @@ async fn test_blueprint_constructor_facilities() -> Result<(), Box<dyn std::erro
     let list_res = dispatch(Command::ListBlueprints, &store).await;
     assert_eq!(list_res["success"], true);
     let bps = list_res["blueprints"].as_array().ok_or("missing blueprints")?;
-    assert!(bps.len() >= 4);
+    assert_eq!(bps.len(), 10);
 
     // 2. Construct Small Business
     let biz_store = DatabaseStore::open_in_memory()?;
@@ -550,6 +550,33 @@ async fn test_blueprint_constructor_facilities() -> Result<(), Box<dyn std::erro
     assert_eq!(surgery_res["success"], true);
     assert_eq!(surgery_res["construction"]["blueprint_id"], "surgery");
     assert_eq!(surgery_res["construction"]["tables_created"].as_array().map(|a| a.len()), Some(6));
+
+    // 4. Construct Real Estate & Automotive Blueprints
+    let prop_store = DatabaseStore::open_in_memory()?;
+    let prop_res = dispatch(
+        Command::Construct {
+            blueprint: "real_estate".to_string(),
+            seed_sample_data: Some(true),
+            enable_search_indexes: Some(true),
+        },
+        &prop_store,
+    )
+    .await;
+    assert_eq!(prop_res["success"], true);
+    assert_eq!(prop_res["construction"]["blueprint_id"], "real_estate");
+
+    let auto_store = DatabaseStore::open_in_memory()?;
+    let auto_res = dispatch(
+        Command::Construct {
+            blueprint: "automotive".to_string(),
+            seed_sample_data: Some(true),
+            enable_search_indexes: Some(true),
+        },
+        &auto_store,
+    )
+    .await;
+    assert_eq!(auto_res["success"], true);
+    assert_eq!(auto_res["construction"]["blueprint_id"], "automotive");
 
     // Verify patients and appointments query works in surgery DB
     let query_res = dispatch(

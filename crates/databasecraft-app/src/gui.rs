@@ -1264,51 +1264,118 @@ impl eframe::App for DatabaseCraftGui {
                 );
                 ui.separator();
 
-                ui.columns(4, |cols| {
-                    let archetypes = [
+                ui.columns(5, |cols| {
+                    let archetypes_row1 = [
                         (
                             "small_business",
                             "🏢 Small Business",
-                            "Retail, Services, Invoicing",
+                            "Commerce & Trade",
                             "Customers, Products, Invoices, Items, Payments + FTS5",
                             Color32::from_rgb(52, 211, 153),
                         ),
                         (
                             "club",
                             "🏆 Club & Society",
-                            "Memberships, Groups, Events",
+                            "Community & Sports",
                             "Tiers, Members, Teams, Dues, Events + FTS5",
                             Color32::from_rgb(96, 165, 250),
                         ),
                         (
                             "surgery",
-                            "🩺 Medical Surgery",
-                            "Healthcare, Patients, EHR",
+                            "🩺 Medical Clinic",
+                            "Healthcare & Practice",
                             "Practitioners, Patients, Appointments, Notes, Vectors",
                             Color32::from_rgb(248, 113, 113),
                         ),
                         (
                             "creative_agency",
-                            "🎨 Creative Agency",
-                            "Studios, Projects, Deliverables",
+                            "🎨 Creative Studio",
+                            "Production & Media",
                             "Clients, Projects, Deliverables, Time Logs + FTS5",
                             Color32::from_rgb(251, 191, 36),
                         ),
+                        (
+                            "real_estate",
+                            "🏡 Real Estate",
+                            "Property & Leasing",
+                            "Properties, Units, Tenants, Leases, Tickets + FTS5",
+                            Color32::from_rgb(167, 139, 250),
+                        ),
                     ];
 
-                    for (i, (id, name, cat, desc, tint)) in archetypes.iter().enumerate() {
+                    for (i, (id, name, cat, desc, tint)) in archetypes_row1.iter().enumerate() {
                         cols[i].group(|ui| {
                             let is_sel = self.constructor_blueprint == *id;
                             if is_sel {
-                                ui.colored_label(*tint, format!("● SELECTED: {name}"));
+                                ui.colored_label(*tint, format!("● ACTIVE: {name}"));
                             } else {
                                 ui.colored_label(Color32::WHITE, *name);
                             }
                             ui.colored_label(Color32::from_rgb(148, 163, 184), *cat);
-                            ui.add_space(4.0);
+                            ui.add_space(3.0);
                             ui.label(*desc);
-                            ui.add_space(6.0);
-                            if ui.selectable_label(is_sel, if is_sel { "Active Blueprint" } else { "Select" }).clicked() {
+                            ui.add_space(4.0);
+                            if ui.selectable_label(is_sel, if is_sel { "Selected" } else { "Choose" }).clicked() {
+                                self.constructor_blueprint = id.to_string();
+                            }
+                        });
+                    }
+                });
+
+                ui.add_space(6.0);
+
+                ui.columns(5, |cols| {
+                    let archetypes_row2 = [
+                        (
+                            "field_service",
+                            "🔧 Field Service",
+                            "Contractors & Trades",
+                            "Accounts, Technicians, Work Orders, Parts, Invoices",
+                            Color32::from_rgb(249, 115, 22),
+                        ),
+                        (
+                            "hospitality",
+                            "🍽️ Restaurant Dining",
+                            "Hospitality & Tables",
+                            "Sections, Tables, Guests, Reservations, Allergies",
+                            Color32::from_rgb(236, 72, 153),
+                        ),
+                        (
+                            "legal",
+                            "⚖️ Legal Practice",
+                            "Law & Case Docket",
+                            "Clients, Matters, Filings, Deadlines, Time Logs",
+                            Color32::from_rgb(129, 140, 248),
+                        ),
+                        (
+                            "automotive",
+                            "🚗 Auto Garage",
+                            "Workshop & Fleet",
+                            "Owners, Vehicles, Job Cards, Parts, MOT Tests",
+                            Color32::from_rgb(45, 212, 191),
+                        ),
+                        (
+                            "education",
+                            "🎓 Academy & School",
+                            "Education & Tutoring",
+                            "Instructors, Students, Courses, Cohorts, Roll Call",
+                            Color32::from_rgb(163, 230, 53),
+                        ),
+                    ];
+
+                    for (i, (id, name, cat, desc, tint)) in archetypes_row2.iter().enumerate() {
+                        cols[i].group(|ui| {
+                            let is_sel = self.constructor_blueprint == *id;
+                            if is_sel {
+                                ui.colored_label(*tint, format!("● ACTIVE: {name}"));
+                            } else {
+                                ui.colored_label(Color32::WHITE, *name);
+                            }
+                            ui.colored_label(Color32::from_rgb(148, 163, 184), *cat);
+                            ui.add_space(3.0);
+                            ui.label(*desc);
+                            ui.add_space(4.0);
+                            if ui.selectable_label(is_sel, if is_sel { "Selected" } else { "Choose" }).clicked() {
                                 self.constructor_blueprint = id.to_string();
                             }
                         });
