@@ -11,6 +11,7 @@
 #![deny(clippy::todo)]
 
 pub mod ai;
+pub mod blueprints;
 pub mod error;
 pub mod export;
 pub mod models;
@@ -57,6 +58,8 @@ pub const CMD_DB_VACUUM: &str = "db.vacuum";
 pub const CMD_DB_BACKUP: &str = "db.backup";
 pub const CMD_DB_DIAGNOSE: &str = "db.diagnose";
 pub const CMD_DB_REPAIR: &str = "db.repair";
+pub const CMD_DB_CONSTRUCT: &str = "db.construct";
+pub const CMD_DB_BLUEPRINTS: &str = "db.blueprints";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "command", content = "params")]
@@ -169,6 +172,12 @@ pub enum Command {
         action: String,
         salvage_path: Option<String>,
     },
+    Construct {
+        blueprint: String,
+        seed_sample_data: Option<bool>,
+        enable_search_indexes: Option<bool>,
+    },
+    ListBlueprints,
 }
 
 /// The Universal Command Bus: dispatches any Command variant into the database store.
@@ -647,6 +656,26 @@ fn execute_dispatch(cmd: Command, store: &DatabaseStore) -> Result<Value, Databa
                 }
             }
         }
+        Command::Construct {
+            blueprint,
+            seed_sample_data,
+            enable_search_indexes,
+        } => {
+            let seed = seed_sample_data.unwrap_or(true);
+            let search = enable_search_indexes.unwrap_or(true);
+            let res = blueprints::construct_blueprint(store, &blueprint, seed, search)?;
+            Ok(json!({
+                "success": true,
+                "construction": res,
+            }))
+        }
+        Command::ListBlueprints => {
+            let list = blueprints::available_blueprints();
+            Ok(json!({
+                "success": true,
+                "blueprints": list,
+            }))
+        }
     }
 }
 
@@ -823,6 +852,18 @@ pub fn command_registry() -> Vec<CommandDescriptor> {
             label: "Repair Database".to_string(),
             description: "Execute database repair: reindex corrupted B-trees, purge orphaned FK records, or salvage to clean clone".to_string(),
             params: json!({ "action": "string (auto|reindex|purge_orphans|salvage)", "salvage_path": "string (optional)" }),
+        },
+        CommandDescriptor {
+            id: CMD_DB_CONSTRUCT.to_string(),
+            label: "Construct Domain Blueprint".to_string(),
+            description: "Construct complete turnkey schema (small business, club, surgery, agency) with tables, foreign keys, and optional FTS5/seed data".to_string(),
+            params: json!({ "blueprint": "string (small_business|club|surgery|creative_agency)", "seed_sample_data": "boolean (optional, default true)", "enable_search_indexes": "boolean (optional, default true)" }),
+        },
+        CommandDescriptor {
+            id: CMD_DB_BLUEPRINTS.to_string(),
+            label: "List Blueprint Archetypes".to_string(),
+            description: "List available domain database blueprint archetypes and included tables".to_string(),
+            params: json!({}),
         },
     ]
 }

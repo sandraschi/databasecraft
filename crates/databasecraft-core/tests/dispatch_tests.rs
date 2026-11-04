@@ -239,7 +239,7 @@ async fn test_hybrid_rag_search() -> Result<(), Box<dyn std::error::Error>> {
 #[tokio::test]
 async fn test_command_registry_and_describe() -> Result<(), Box<dyn std::error::Error>> {
     let registry = databasecraft_core::command_registry();
-    assert_eq!(registry.len(), 27);
+    assert_eq!(registry.len(), 29);
 
     for cmd in &registry {
         assert!(!cmd.id.is_empty());
@@ -507,6 +507,64 @@ async fn test_diagnose_and_repair_inconsistent_database() -> Result<(), Box<dyn 
     // 5. Verify database is once again HEALTHY
     let diag3 = dispatch(Command::Diagnose, &store).await;
     assert_eq!(diag3["report"]["status"], "HEALTHY");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_blueprint_constructor_facilities() -> Result<(), Box<dyn std::error::Error>> {
+    // 1. Check list of blueprints
+    let store = DatabaseStore::open_in_memory()?;
+    let list_res = dispatch(Command::ListBlueprints, &store).await;
+    assert_eq!(list_res["success"], true);
+    let bps = list_res["blueprints"].as_array().ok_or("missing blueprints")?;
+    assert!(bps.len() >= 4);
+
+    // 2. Construct Small Business
+    let biz_store = DatabaseStore::open_in_memory()?;
+    let biz_res = dispatch(
+        Command::Construct {
+            blueprint: "small_business".to_string(),
+            seed_sample_data: Some(true),
+            enable_search_indexes: Some(true),
+        },
+        &biz_store,
+    )
+    .await;
+    assert_eq!(biz_res["success"], true);
+    assert_eq!(biz_res["construction"]["blueprint_id"], "small_business");
+    assert_eq!(biz_res["construction"]["tables_created"].as_array().map(|a| a.len()), Some(5));
+    assert!(biz_res["construction"]["sample_records_seeded"].as_u64().unwrap_or(0) > 0);
+
+    // 3. Construct Medical Surgery
+    let surgery_store = DatabaseStore::open_in_memory()?;
+    let surgery_res = dispatch(
+        Command::Construct {
+            blueprint: "surgery".to_string(),
+            seed_sample_data: Some(true),
+            enable_search_indexes: Some(true),
+        },
+        &surgery_store,
+    )
+    .await;
+    assert_eq!(surgery_res["success"], true);
+    assert_eq!(surgery_res["construction"]["blueprint_id"], "surgery");
+    assert_eq!(surgery_res["construction"]["tables_created"].as_array().map(|a| a.len()), Some(6));
+
+    // Verify patients and appointments query works in surgery DB
+    let query_res = dispatch(
+        Command::Query {
+            sql: "SELECT p.full_name, a.chief_complaint, d.full_name AS doctor FROM appointments a JOIN patients p ON a.patient_id = p.id JOIN practitioners d ON a.practitioner_id = d.id;".to_string(),
+        },
+        &surgery_store,
+    )
+    .await;
+    assert_eq!(query_res["success"], true);
+    assert!(query_res["row_count"].as_u64().unwrap_or(0) >= 1);
+
+    // Verify diagnosed healthy
+    let diag = dispatch(Command::Diagnose, &surgery_store).await;
+    assert_eq!(diag["report"]["status"], "HEALTHY");
 
     Ok(())
 }

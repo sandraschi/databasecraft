@@ -28,6 +28,7 @@ pub enum ActiveTab {
     Rag,
     Profiler,
     Doctor,
+    Constructor,
     Export,
 }
 
@@ -70,6 +71,11 @@ pub struct DatabaseCraftGui {
     pub diagnostic_report: Option<Value>,
     pub repair_report: Option<Value>,
     pub salvage_path: String,
+    pub constructor_blueprint: String,
+    pub constructor_seed: bool,
+    pub constructor_search: bool,
+    pub constructor_result: Option<Value>,
+    pub constructor_blueprints_list: Option<Value>,
     pub rag_text: String,
     pub rag_results: Option<Value>,
     pub export_target: ExportTarget,
@@ -120,6 +126,11 @@ impl DatabaseCraftGui {
             diagnostic_report: None,
             repair_report: None,
             salvage_path: "salvaged_database.dbcraft".to_string(),
+            constructor_blueprint: "small_business".to_string(),
+            constructor_seed: true,
+            constructor_search: true,
+            constructor_result: None,
+            constructor_blueprints_list: None,
             rag_text: "Obsidian headphones".to_string(),
             rag_results: None,
             export_target: ExportTarget::DesignCraft,
@@ -307,6 +318,30 @@ impl DatabaseCraftGui {
         let status = res["report"]["status"].as_str().unwrap_or("UNKNOWN");
         self.status_message = format!("Integrity check finished: [{status}]");
         self.diagnostic_report = Some(res);
+    }
+
+    pub fn load_blueprints(&mut self) {
+        let res = self
+            .runtime
+            .block_on(dispatch(Command::ListBlueprints, &self.store));
+        self.constructor_blueprints_list = Some(res);
+    }
+
+    pub fn construct_database(&mut self) {
+        let blueprint = self.constructor_blueprint.clone();
+        let seed = self.constructor_seed;
+        let search = self.constructor_search;
+        let res = self.runtime.block_on(dispatch(
+            Command::Construct {
+                blueprint: blueprint.clone(),
+                seed_sample_data: Some(seed),
+                enable_search_indexes: Some(search),
+            },
+            &self.store,
+        ));
+        self.constructor_result = Some(res);
+        self.refresh_tables();
+        self.status_message = format!("Constructed turnkey domain database blueprint '{blueprint}'");
     }
 
     pub fn run_repair(&mut self, action: &str) {
@@ -509,6 +544,10 @@ impl eframe::App for DatabaseCraftGui {
                 if nav_button(ui, self.active_tab == ActiveTab::Doctor, "🩺 Doctor & Repair") {
                     self.active_tab = ActiveTab::Doctor;
                     self.run_diagnostics();
+                }
+                if nav_button(ui, self.active_tab == ActiveTab::Constructor, "🏗️ Domain Constructor") {
+                    self.active_tab = ActiveTab::Constructor;
+                    self.load_blueprints();
                 }
                 if nav_button(ui, self.active_tab == ActiveTab::Export, "📦 Cross-Craft Merge") {
                     self.active_tab = ActiveTab::Export;
@@ -1207,6 +1246,117 @@ impl eframe::App for DatabaseCraftGui {
 
                 if let Some(act) = action_to_run {
                     self.run_repair(act);
+                }
+            }
+            ActiveTab::Constructor => {
+                let mut do_construct = false;
+                ui.horizontal(|ui| {
+                    ui.heading("🏗️ Turnkey Domain Database Constructor");
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("⟳ Refresh Blueprints").clicked() {
+                            self.load_blueprints();
+                        }
+                    });
+                });
+                ui.label(
+                    "Instantly construct battle-tested, relational schemas for common organizational patterns \
+                     with foreign keys, multi-column indexes, full-text search (FTS5), vector embeddings, and realistic starter seeds."
+                );
+                ui.separator();
+
+                ui.columns(4, |cols| {
+                    let archetypes = [
+                        (
+                            "small_business",
+                            "🏢 Small Business",
+                            "Retail, Services, Invoicing",
+                            "Customers, Products, Invoices, Items, Payments + FTS5",
+                            Color32::from_rgb(52, 211, 153),
+                        ),
+                        (
+                            "club",
+                            "🏆 Club & Society",
+                            "Memberships, Groups, Events",
+                            "Tiers, Members, Teams, Dues, Events + FTS5",
+                            Color32::from_rgb(96, 165, 250),
+                        ),
+                        (
+                            "surgery",
+                            "🩺 Medical Surgery",
+                            "Healthcare, Patients, EHR",
+                            "Practitioners, Patients, Appointments, Notes, Vectors",
+                            Color32::from_rgb(248, 113, 113),
+                        ),
+                        (
+                            "creative_agency",
+                            "🎨 Creative Agency",
+                            "Studios, Projects, Deliverables",
+                            "Clients, Projects, Deliverables, Time Logs + FTS5",
+                            Color32::from_rgb(251, 191, 36),
+                        ),
+                    ];
+
+                    for (i, (id, name, cat, desc, tint)) in archetypes.iter().enumerate() {
+                        cols[i].group(|ui| {
+                            let is_sel = self.constructor_blueprint == *id;
+                            if is_sel {
+                                ui.colored_label(*tint, format!("● SELECTED: {name}"));
+                            } else {
+                                ui.colored_label(Color32::WHITE, *name);
+                            }
+                            ui.colored_label(Color32::from_rgb(148, 163, 184), *cat);
+                            ui.add_space(4.0);
+                            ui.label(*desc);
+                            ui.add_space(6.0);
+                            if ui.selectable_label(is_sel, if is_sel { "Active Blueprint" } else { "Select" }).clicked() {
+                                self.constructor_blueprint = id.to_string();
+                            }
+                        });
+                    }
+                });
+
+                ui.add_space(8.0);
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.strong("Configuration Options:");
+                    ui.checkbox(&mut self.constructor_seed, "Seed Realistic Starter Records");
+                    ui.checkbox(&mut self.constructor_search, "Enable FTS5 Full-Text & Vector Search Tables");
+                    ui.add_space(20.0);
+                    if ui.button(egui::RichText::new("🚀 Construct Blueprint Now").color(Color32::from_rgb(16, 185, 129)).strong()).clicked() {
+                        do_construct = true;
+                    }
+                });
+                ui.separator();
+
+                if let Some(ref res) = self.constructor_result {
+                    if res["success"] == true {
+                        let c = &res["construction"];
+                        ui.group(|ui| {
+                            ui.horizontal(|ui| {
+                                ui.colored_label(Color32::from_rgb(52, 211, 153), "✔ SUCCESS:");
+                                ui.strong(format!("Constructed Blueprint '{}' ({})", c["blueprint_name"].as_str().unwrap_or(""), c["blueprint_id"].as_str().unwrap_or("")));
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label(format!("• Tables Created: {}", c["tables_created"].as_array().map(|a| a.len()).unwrap_or(0)));
+                                ui.label(format!("• Indexes Created: {}", c["indexes_created"].as_array().map(|a| a.len()).unwrap_or(0)));
+                                ui.label(format!("• Starter Records Seeded: {}", c["sample_records_seeded"]));
+                            });
+                            if let Some(tbls) = c["tables_created"].as_array() {
+                                let names: Vec<&str> = tbls.iter().filter_map(|v| v.as_str()).collect();
+                                ui.colored_label(Color32::from_rgb(148, 163, 184), format!("Tables: {}", names.join(", ")));
+                            }
+                        });
+                    } else {
+                        ui.group(|ui| {
+                            ui.colored_label(Color32::from_rgb(239, 68, 68), format!("✖ Construction Error: {}", res["error"].as_str().unwrap_or("Unknown")));
+                        });
+                    }
+                } else {
+                    ui.label("Select a domain archetype above and click 'Construct Blueprint Now' to create the schema and starter records.");
+                }
+
+                if do_construct {
+                    self.construct_database();
                 }
             }
             ActiveTab::Export => {

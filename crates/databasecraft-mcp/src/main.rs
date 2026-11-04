@@ -206,6 +206,23 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Construct a turnkey domain database schema: small_business, club, surgery, or creative_agency
+    Construct {
+        blueprint: String,
+        #[arg(long, default_value_t = true)]
+        seed: bool,
+        #[arg(long, default_value_t = true)]
+        search: bool,
+        #[arg(long)]
+        db: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// List all available domain database constructor blueprints
+    Blueprints {
+        #[arg(long)]
+        json: bool,
+    },
     /// List all registered commands in the Craft command bus (id, label, signature)
     #[command(name = "commands")]
     Registry {
@@ -609,6 +626,47 @@ fn main() {
                 eprintln!("Repair Error: {}", res["error"]);
             }
         }
+        Commands::Construct { blueprint, seed, search, db, json } => {
+            let store = open_store(db.as_deref());
+            let res = rt.block_on(dispatch(Command::Construct { blueprint, seed_sample_data: Some(seed), enable_search_indexes: Some(search) }, &store));
+            if json {
+                println!("{res}");
+            } else if res["success"] == true {
+                let c = &res["construction"];
+                println!("Successfully Constructed Blueprint: {} ({})", c["blueprint_name"], c["blueprint_id"]);
+                println!("Tables Created ({}):", c["tables_created"].as_array().map(|a| a.len()).unwrap_or(0));
+                if let Some(tbls) = c["tables_created"].as_array() {
+                    for t in tbls {
+                        println!("  - {}", t.as_str().unwrap_or(""));
+                    }
+                }
+                println!("Indexes Created ({}):", c["indexes_created"].as_array().map(|a| a.len()).unwrap_or(0));
+                println!("FTS Search Tables: {:?}", c["fts_tables_created"]);
+                println!("Sample Records Seeded: {}", c["sample_records_seeded"]);
+            } else {
+                eprintln!("Construction Error: {}", res["error"]);
+            }
+        }
+        Commands::Blueprints { json } => {
+            let store = DatabaseStore::open_in_memory().unwrap_or_else(|_| {
+                eprintln!("Failed to open in-memory store");
+                std::process::exit(1);
+            });
+            let res = rt.block_on(dispatch(Command::ListBlueprints, &store));
+            if json {
+                println!("{}", serde_json::to_string_pretty(&res["blueprints"]).unwrap_or_default());
+            } else if let Some(bps) = res["blueprints"].as_array() {
+                println!("Available Domain Database Blueprints ({} archetypes):", bps.len());
+                for bp in bps {
+                    println!("\n  [{}] {} ({})", bp["id"], bp["name"], bp["category"]);
+                    println!("    {}", bp["description"]);
+                    if let Some(tbls) = bp["tables"].as_array() {
+                        let names: Vec<&str> = tbls.iter().filter_map(|v| v.as_str()).collect();
+                        println!("    Tables: {}", names.join(", "));
+                    }
+                }
+            }
+        }
         Commands::Registry { json } => {
             let registry = command_registry();
             if json {
@@ -887,6 +945,27 @@ pub fn tools_list() -> Value {
                     "salvage_path": { "type": "string", "description": "Target path when using salvage action" }
                 }
             }
+        },
+        {
+            "name": "db_construct",
+            "description": "Construct a turnkey domain database schema: small_business, club, surgery, or creative_agency",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "blueprint": { "type": "string", "description": "Blueprint archetype: small_business, club, surgery, or creative_agency" },
+                    "seed": { "type": "boolean", "description": "Whether to seed domain sample records (default: true)" },
+                    "search": { "type": "boolean", "description": "Whether to create FTS5 and vector search indexes (default: true)" }
+                },
+                "required": ["blueprint"]
+            }
+        },
+        {
+            "name": "db_list_blueprints",
+            "description": "List all turnkey domain database blueprints available for instant construction",
+            "inputSchema": {
+                "type": "object",
+                "properties": {}
+            }
         }
     ])
 }
@@ -1047,6 +1126,19 @@ pub fn call_tool(rt: &Runtime, store: &DatabaseStore, name: &str, args: &Value) 
             let action = args["action"].as_str().unwrap_or("auto").to_string();
             let salvage_path = args["salvage_path"].as_str().map(|s| s.to_string());
             rt.block_on(dispatch(Command::Repair { action, salvage_path }, store))
+        }
+        "db_construct" => {
+            let blueprint = args["blueprint"].as_str().unwrap_or("").to_string();
+            let seed = args["seed"].as_bool();
+            let search = args["search"].as_bool();
+            rt.block_on(dispatch(Command::Construct {
+                blueprint,
+                seed_sample_data: seed,
+                enable_search_indexes: search,
+            }, store))
+        }
+        "db_list_blueprints" => {
+            rt.block_on(dispatch(Command::ListBlueprints, store))
         }
         unknown => json!({ "success": false, "error": format!("Unknown tool '{unknown}'") }),
     }
