@@ -527,7 +527,7 @@ impl eframe::App for DatabaseCraftGui {
                     let text = egui::RichText::new(label).color(if active {
                         emerald_bright
                     } else {
-                        Color32::WHITE
+                        ui.visuals().text_color()
                     });
                     ui.selectable_label(active, text).clicked()
                 };
@@ -1343,7 +1343,7 @@ impl eframe::App for DatabaseCraftGui {
                             if is_sel {
                                 ui.colored_label(*tint, format!("● ACTIVE: {name}"));
                             } else {
-                                ui.colored_label(Color32::WHITE, *name);
+                                ui.colored_label(ui.visuals().text_color(), *name);
                             }
                             ui.colored_label(Color32::from_rgb(148, 163, 184), *cat);
                             ui.add_space(3.0);
@@ -1403,7 +1403,7 @@ impl eframe::App for DatabaseCraftGui {
                             if is_sel {
                                 ui.colored_label(*tint, format!("● ACTIVE: {name}"));
                             } else {
-                                ui.colored_label(Color32::WHITE, *name);
+                                ui.colored_label(ui.visuals().text_color(), *name);
                             }
                             ui.colored_label(Color32::from_rgb(148, 163, 184), *cat);
                             ui.add_space(3.0);
