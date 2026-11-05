@@ -45,6 +45,18 @@ cargo run -p databasecraft-mcp -- mcp
 cargo run -p databasecraft-app -- --smoke
 ```
 
+## Status — does today / next week / non-goals
+
+**Does today:** core/store/mcp/app with workspace clippy denies; real CLI
+(status/query/schema/record/seed/embed/search); 17 test fns; docs (4);
+`status` reports its control port.
+
+**Next week:** password-URL redaction test; binary-name decision
+(`dbcraft-cli.exe`); 3 PLAN recipes green + compat baseline.
+
+**Non-goals:** backbone, not app — blueprints compile in AppCraft;
+Postgres/MySQL paths need dockerized CI or stay sqlite-labeled.
+
 ## Lineage — the Storytold craft-app pattern
 
 Storytold ArtCraft ([storytold/artcraft](https://github.com/storytold/artcraft) — "the IDE for artists") was the starting point. The 16 craft apps in the Storytold stable each ship one binary that is both the human CLI and the agent MCP server (stdio), headless-first, with `run.json` + report artifacts. That modus operandi and harness is what this repo implements; the code here is independent, the pattern is shared.
