@@ -532,7 +532,7 @@ async fn test_blueprint_constructor_facilities() -> Result<(), Box<dyn std::erro
     let bps = list_res["blueprints"]
         .as_array()
         .ok_or("missing blueprints")?;
-    assert_eq!(bps.len(), 10);
+    assert_eq!(bps.len(), 11);
 
     // 2. Construct Small Business
     let biz_store = DatabaseStore::open_in_memory()?;
@@ -622,5 +622,55 @@ async fn test_blueprint_constructor_facilities() -> Result<(), Box<dyn std::erro
     let diag = dispatch(Command::Diagnose, &surgery_store).await;
     assert_eq!(diag["report"]["status"], "HEALTHY");
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_blueprint_billing_stripe_mirror() -> Result<(), Box<dyn std::error::Error>> {
+    let store = DatabaseStore::open_in_memory()?;
+    let res = dispatch(
+        Command::Construct {
+            blueprint: "billing".to_string(),
+            seed_sample_data: Some(true),
+            enable_search_indexes: Some(true),
+        },
+        &store,
+    )
+    .await;
+    assert_eq!(res["success"], true);
+    assert_eq!(res["construction"]["blueprint_id"], "billing");
+    assert_eq!(
+        res["construction"]["tables_created"]
+            .as_array()
+            .map(|a| a.len()),
+        Some(5)
+    );
+    assert_eq!(res["construction"]["sample_records_seeded"], 13);
+
+    // Seed covers the subscription lifecycle states the reconcile logic needs.
+    let subs = dispatch(
+        Command::Query {
+            sql: "SELECT stripe_subscription_id, status FROM subscriptions ORDER BY id".to_string(),
+        },
+        &store,
+    )
+    .await;
+    assert_eq!(subs["success"], true);
+    assert_eq!(subs["row_count"], 3);
+    let statuses: Vec<String> = subs["rows"]
+        .as_array()
+        .ok_or("missing rows")?
+        .iter()
+        .filter_map(|r| r.as_array()?.get(1)?.as_str().map(|s| s.to_string()))
+        .collect();
+    assert!(statuses.contains(&"active".to_string()));
+    assert!(statuses.contains(&"past_due".to_string()));
+    assert!(statuses.contains(&"canceled".to_string()));
+
+    // FTS indexes registered for customer/product search.
+    let fts = res["construction"]["fts_tables_created"]
+        .as_array()
+        .ok_or("missing fts tables")?;
+    assert_eq!(fts.len(), 2);
     Ok(())
 }

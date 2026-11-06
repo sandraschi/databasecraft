@@ -177,8 +177,22 @@ pub fn available_blueprints() -> Vec<BlueprintDescriptor> {
                 "students".to_string(),
                 "courses".to_string(),
                 "class_cohorts".to_string(),
-                "attendance_records".to_string(),
-                "enrollments".to_string(),
+            "attendance_records".to_string(),
+            "enrollments".to_string(),
+        ],
+    },
+        BlueprintDescriptor {
+            id: "billing".to_string(),
+            name: "Card Billing & Subscriptions (Stripe mirror)".to_string(),
+            category: "Commerce & Billing".to_string(),
+            description: "Stripe-mirrored card billing: customers, products, prices, subscriptions with lifecycle states, and invoices. Local mirror of the Stripe system of record — upsert by Stripe ID, never hand-written card data.".to_string(),
+            table_count: 5,
+            tables: vec![
+                "stripe_customers".to_string(),
+                "stripe_products".to_string(),
+                "stripe_prices".to_string(),
+                "subscriptions".to_string(),
+                "stripe_invoices".to_string(),
             ],
         },
     ]
@@ -222,8 +236,11 @@ pub fn construct_blueprint(
         "education" | "academy" | "school" | "tutoring" => {
             construct_education(store, seed_sample_data, enable_search_indexes)
         }
+        "billing" | "stripe" | "subscriptions" | "card_billing" => {
+            construct_billing(store, seed_sample_data, enable_search_indexes)
+        }
         other => Err(DatabaseCraftError::InvalidInput(format!(
-            "unknown blueprint archetype '{other}'. Available: small_business, club, surgery, creative_agency, real_estate, field_service, hospitality, legal, automotive, education"
+            "unknown blueprint archetype '{other}'. Available: small_business, club, surgery, creative_agency, real_estate, field_service, hospitality, legal, automotive, education, billing"
         ))),
     }
 }
@@ -1569,6 +1586,144 @@ fn construct_education(
             "idx_attendance_student".to_string(),
             "idx_enrollments_cohort".to_string(),
             "idx_enrollments_student".to_string(),
+        ],
+        fts_tables_created: fts_tables,
+        sample_records_seeded: seeded,
+        status: "CONSTRUCTED".to_string(),
+    })
+}
+
+fn construct_billing(
+    store: &DatabaseStore,
+    seed_sample: bool,
+    enable_search: bool,
+) -> Result<ConstructionResult, DatabaseCraftError> {
+    let ddl = "
+        CREATE TABLE IF NOT EXISTS stripe_customers (
+            id INTEGER PRIMARY KEY,
+            stripe_customer_id TEXT NOT NULL UNIQUE,
+            email TEXT NOT NULL,
+            full_name TEXT,
+            default_pm_brand TEXT,
+            default_pm_last4 TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS stripe_products (
+            id INTEGER PRIMARY KEY,
+            stripe_product_id TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            description TEXT,
+            active INTEGER NOT NULL DEFAULT 1,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS stripe_prices (
+            id INTEGER PRIMARY KEY,
+            stripe_price_id TEXT NOT NULL UNIQUE,
+            stripe_product_id TEXT NOT NULL REFERENCES stripe_products(stripe_product_id) ON DELETE RESTRICT,
+            nickname TEXT,
+            unit_amount INTEGER NOT NULL,
+            currency TEXT NOT NULL DEFAULT 'eur',
+            recurring_interval TEXT,
+            active INTEGER NOT NULL DEFAULT 1
+        );
+
+        CREATE TABLE IF NOT EXISTS subscriptions (
+            id INTEGER PRIMARY KEY,
+            stripe_subscription_id TEXT NOT NULL UNIQUE,
+            stripe_customer_id TEXT NOT NULL REFERENCES stripe_customers(stripe_customer_id) ON DELETE RESTRICT,
+            stripe_price_id TEXT NOT NULL REFERENCES stripe_prices(stripe_price_id) ON DELETE RESTRICT,
+            status TEXT NOT NULL CHECK(status IN ('trialing','active','past_due','canceled','incomplete')),
+            current_period_start INTEGER,
+            current_period_end INTEGER,
+            trial_end INTEGER,
+            cancel_at_period_end INTEGER NOT NULL DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS stripe_invoices (
+            id INTEGER PRIMARY KEY,
+            stripe_invoice_id TEXT NOT NULL UNIQUE,
+            stripe_customer_id TEXT NOT NULL REFERENCES stripe_customers(stripe_customer_id) ON DELETE RESTRICT,
+            stripe_subscription_id TEXT REFERENCES subscriptions(stripe_subscription_id) ON DELETE SET NULL,
+            hosted_invoice_url TEXT,
+            status TEXT NOT NULL CHECK(status IN ('draft','open','paid','void','uncollectible')),
+            amount_due INTEGER NOT NULL,
+            amount_paid INTEGER NOT NULL DEFAULT 0,
+            currency TEXT NOT NULL DEFAULT 'eur',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_subscriptions_customer ON subscriptions(stripe_customer_id);
+        CREATE INDEX IF NOT EXISTS idx_subscriptions_price ON subscriptions(stripe_price_id);
+        CREATE INDEX IF NOT EXISTS idx_invoices_customer ON stripe_invoices(stripe_customer_id);
+        CREATE INDEX IF NOT EXISTS idx_invoices_subscription ON stripe_invoices(stripe_subscription_id);
+        CREATE INDEX IF NOT EXISTS idx_prices_product ON stripe_prices(stripe_product_id);
+    ";
+
+    store
+        .execute(ddl)
+        .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+
+    let mut fts_tables = Vec::new();
+    if enable_search {
+        store
+            .init_fts("stripe_customers_fts", &["email", "full_name"])
+            .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+        store
+            .init_fts("stripe_products_fts", &["name", "description"])
+            .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+        fts_tables.push("stripe_customers_fts".to_string());
+        fts_tables.push("stripe_products_fts".to_string());
+    }
+
+    let mut seeded = 0;
+    if seed_sample {
+        let sample_data = "
+            INSERT OR IGNORE INTO stripe_customers (id, stripe_customer_id, email, full_name, default_pm_brand, default_pm_last4) VALUES
+            (1, 'cus_test_0001', 'office@beispiel-shop.example', 'Beispiel Kundin', 'visa', '4242'),
+            (2, 'cus_test_0002', 'werkstatt@beispiel-handwerk.example', 'Beispiel Handwerk GmbH', 'mastercard', '5555');
+
+            INSERT OR IGNORE INTO stripe_products (id, stripe_product_id, name, description, active) VALUES
+            (1, 'prod_test_honig', 'Akazienhonig 500g', 'Hofladen und Webshop', 1),
+            (2, 'prod_test_wartung', 'Monatliche Bienenstock-Betreuung', 'Abo und Service', 1);
+
+            INSERT OR IGNORE INTO stripe_prices (id, stripe_price_id, stripe_product_id, nickname, unit_amount, currency, recurring_interval, active) VALUES
+            (1, 'price_test_honig_einmal', 'prod_test_honig', 'Einmalkauf', 890, 'eur', NULL, 1),
+            (2, 'price_test_wartung_monat', 'prod_test_wartung', 'Monatlich', 2900, 'eur', 'month', 1),
+            (3, 'price_test_wartung_jahr', 'prod_test_wartung', 'Jaehrlich', 29000, 'eur', 'year', 1);
+
+            INSERT OR IGNORE INTO subscriptions (id, stripe_subscription_id, stripe_customer_id, stripe_price_id, status, current_period_start, current_period_end, trial_end, cancel_at_period_end) VALUES
+            (1, 'sub_test_0001', 'cus_test_0001', 'price_test_wartung_monat', 'active', 1761955200, 1764547200, NULL, 0),
+            (2, 'sub_test_0002', 'cus_test_0002', 'price_test_wartung_jahr', 'past_due', 1759276800, 1790812800, NULL, 0),
+            (3, 'sub_test_0003', 'cus_test_0002', 'price_test_wartung_monat', 'canceled', 1759276800, 1761955200, NULL, 1);
+
+            INSERT OR IGNORE INTO stripe_invoices (id, stripe_invoice_id, stripe_customer_id, stripe_subscription_id, hosted_invoice_url, status, amount_due, amount_paid, currency) VALUES
+            (1, 'in_test_0001', 'cus_test_0001', 'sub_test_0001', 'https://invoice.stripe.com/test/in_test_0001', 'paid', 2900, 2900, 'eur'),
+            (2, 'in_test_0002', 'cus_test_0002', 'sub_test_0002', 'https://invoice.stripe.com/test/in_test_0002', 'open', 29000, 0, 'eur'),
+            (3, 'in_test_0003', 'cus_test_0001', NULL, 'https://invoice.stripe.com/test/in_test_0003', 'draft', 890, 0, 'eur');
+        ";
+        let _ = store.execute(sample_data);
+        seeded = 13;
+    }
+
+    Ok(ConstructionResult {
+        blueprint_id: "billing".to_string(),
+        blueprint_name: "Card Billing & Subscriptions (Stripe mirror)".to_string(),
+        tables_created: vec![
+            "stripe_customers".to_string(),
+            "stripe_products".to_string(),
+            "stripe_prices".to_string(),
+            "subscriptions".to_string(),
+            "stripe_invoices".to_string(),
+        ],
+        indexes_created: vec![
+            "idx_subscriptions_customer".to_string(),
+            "idx_subscriptions_price".to_string(),
+            "idx_invoices_customer".to_string(),
+            "idx_invoices_subscription".to_string(),
+            "idx_prices_product".to_string(),
         ],
         fts_tables_created: fts_tables,
         sample_records_seeded: seeded,
