@@ -855,7 +855,11 @@ fn main() {
                 Ok(s) => s,
                 Err(e) => {
                     let err = json!({ "success": false, "error": format!("Failed to inspect {db1}: {e}") });
-                    if json { println!("{err}"); } else { eprintln!("{err}"); }
+                    if json {
+                        println!("{err}");
+                    } else {
+                        eprintln!("{err}");
+                    }
                     std::process::exit(1);
                 }
             };
@@ -863,7 +867,11 @@ fn main() {
                 Ok(s) => s,
                 Err(e) => {
                     let err = json!({ "success": false, "error": format!("Failed to inspect {db2}: {e}") });
-                    if json { println!("{err}"); } else { eprintln!("{err}"); }
+                    if json {
+                        println!("{err}");
+                    } else {
+                        eprintln!("{err}");
+                    }
                     std::process::exit(1);
                 }
             };
@@ -881,10 +889,14 @@ fn main() {
                 match tables1.get(name) {
                     None => tables_added.push(name.clone()),
                     Some(t1) => {
-                        let cols1: std::collections::HashMap<String, &databasecraft_store::ColumnInfo> =
-                            t1.columns.iter().map(|c| (c.name.clone(), c)).collect();
-                        let cols2: std::collections::HashMap<String, &databasecraft_store::ColumnInfo> =
-                            t2.columns.iter().map(|c| (c.name.clone(), c)).collect();
+                        let cols1: std::collections::HashMap<
+                            String,
+                            &databasecraft_store::ColumnInfo,
+                        > = t1.columns.iter().map(|c| (c.name.clone(), c)).collect();
+                        let cols2: std::collections::HashMap<
+                            String,
+                            &databasecraft_store::ColumnInfo,
+                        > = t2.columns.iter().map(|c| (c.name.clone(), c)).collect();
 
                         let mut cols_added = Vec::new();
                         let mut cols_removed = Vec::new();
@@ -910,7 +922,10 @@ fn main() {
                             }
                         }
 
-                        if !cols_added.is_empty() || !cols_removed.is_empty() || !cols_changed.is_empty() {
+                        if !cols_added.is_empty()
+                            || !cols_removed.is_empty()
+                            || !cols_changed.is_empty()
+                        {
                             tables_modified.push(json!({
                                 "table": name,
                                 "columns_added": cols_added,
@@ -931,7 +946,8 @@ fn main() {
             tables_added.sort();
             tables_removed.sort();
 
-            let identical = tables_added.is_empty() && tables_removed.is_empty() && tables_modified.is_empty();
+            let identical =
+                tables_added.is_empty() && tables_removed.is_empty() && tables_modified.is_empty();
             let res = json!({
                 "success": true,
                 "db1": db1,
@@ -959,7 +975,10 @@ fn main() {
                         println!("  Tables removed in db2: {}", tables_removed.join(", "));
                     }
                     for m in &tables_modified {
-                        println!("  Table '{}' modifications: {m}", m["table"].as_str().unwrap_or(""));
+                        println!(
+                            "  Table '{}' modifications: {m}",
+                            m["table"].as_str().unwrap_or("")
+                        );
                     }
                 }
             }
