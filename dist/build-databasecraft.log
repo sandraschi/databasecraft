@@ -1,0 +1,7 @@
+== databasecraft 0.5.0 ==
+building...
+second exe: D:\Dev\repos\databasecraft\target\release\databasecraft-cli.exe
+wrote D:\Dev\repos\databasecraft\dist\databasecraft-0.5.0-windows-x64-portable.zip
+sha256 a49638ba1d931e6cfd8c8d737b195818e5053362e126a55596136e81ccbf8496
+dry-run: publish with -Publish, or manually:
+gh release create v0.5.0 dist/databasecraft-0.5.0-windows-x64-portable.zip dist/SHA256SUMS.txt --repo sandraschi/databasecraft --title "databasecraft 0.5.0 (alpha)" --prerelease

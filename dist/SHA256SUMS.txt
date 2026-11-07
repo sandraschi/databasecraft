@@ -1,0 +1,1 @@
+a49638ba1d931e6cfd8c8d737b195818e5053362e126a55596136e81ccbf8496  databasecraft-0.5.0-windows-x64-portable.zip
