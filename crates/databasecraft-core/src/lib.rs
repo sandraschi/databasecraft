@@ -12,6 +12,7 @@
 
 pub mod ai;
 pub mod blueprints;
+pub mod canvas;
 pub mod error;
 pub mod export;
 pub mod models;
@@ -60,6 +61,9 @@ pub const CMD_DB_DIAGNOSE: &str = "db.diagnose";
 pub const CMD_DB_REPAIR: &str = "db.repair";
 pub const CMD_DB_CONSTRUCT: &str = "db.construct";
 pub const CMD_DB_BLUEPRINTS: &str = "db.blueprints";
+pub const CMD_CANVAS_QUERY: &str = "canvas.query";
+pub const CMD_CANVAS_COMPILE: &str = "canvas.compile_sql";
+pub const CMD_SCHEMA_RELATIONS: &str = "db.schema_relations";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "command", content = "params")]
@@ -178,6 +182,15 @@ pub enum Command {
         enable_search_indexes: Option<bool>,
     },
     ListBlueprints,
+    CanvasQuery {
+        spec: canvas::CanvasSpec,
+    },
+    CanvasCompileSql {
+        spec: canvas::CanvasSpec,
+    },
+    SchemaRelations {
+        table: String,
+    },
 }
 
 /// The Universal Command Bus: dispatches any Command variant into the database store.
@@ -704,6 +717,29 @@ fn execute_dispatch(cmd: Command, store: &DatabaseStore) -> Result<Value, Databa
                 "blueprints": list,
             }))
         }
+        Command::CanvasQuery { spec } => {
+            let result = canvas::CanvasCompiler::execute(store, &spec)?;
+            Ok(json!({
+                "success": true,
+                "result": result,
+            }))
+        }
+        Command::CanvasCompileSql { spec } => {
+            let sql = canvas::CanvasCompiler::compile_sql(&spec)?;
+            Ok(json!({
+                "success": true,
+                "sql": sql,
+            }))
+        }
+        Command::SchemaRelations { table } => {
+            let relations = canvas::resolve_table_relations(store, &table)?;
+            Ok(json!({
+                "success": true,
+                "table": relations.table,
+                "forward_relations": relations.forward_relations,
+                "reverse_relations": relations.reverse_relations,
+            }))
+        }
     }
 }
 
@@ -892,6 +928,24 @@ pub fn command_registry() -> Vec<CommandDescriptor> {
             label: "List Blueprint Archetypes".to_string(),
             description: "List available domain database blueprint archetypes and included tables".to_string(),
             params: json!({}),
+        },
+        CommandDescriptor {
+            id: CMD_CANVAS_QUERY.to_string(),
+            label: "Execute Relational Canvas Query".to_string(),
+            description: "Execute hierarchical non-1NF perspective query with nested subqueries and rollups".to_string(),
+            params: json!({ "spec": "CanvasSpec object" }),
+        },
+        CommandDescriptor {
+            id: CMD_CANVAS_COMPILE.to_string(),
+            label: "Compile Canvas to SQL".to_string(),
+            description: "Compile a CanvasSpec AST into ANSI/SQLite JSON group SQL query without executing".to_string(),
+            params: json!({ "spec": "CanvasSpec object" }),
+        },
+        CommandDescriptor {
+            id: CMD_SCHEMA_RELATIONS.to_string(),
+            label: "Discover Schema Relations".to_string(),
+            description: "Inspect forward (N:1) and reverse (1:N) foreign-key links for a table for perspective sprouting".to_string(),
+            params: json!({ "table": "string" }),
         },
     ]
 }

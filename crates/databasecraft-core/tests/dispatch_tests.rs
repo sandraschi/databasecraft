@@ -239,7 +239,7 @@ async fn test_hybrid_rag_search() -> Result<(), Box<dyn std::error::Error>> {
 #[tokio::test]
 async fn test_command_registry_and_describe() -> Result<(), Box<dyn std::error::Error>> {
     let registry = databasecraft_core::command_registry();
-    assert_eq!(registry.len(), 29);
+    assert_eq!(registry.len(), 32);
 
     for cmd in &registry {
         assert!(!cmd.id.is_empty());
@@ -672,5 +672,188 @@ async fn test_blueprint_billing_stripe_mirror() -> Result<(), Box<dyn std::error
         .as_array()
         .ok_or("missing fts tables")?;
     assert_eq!(fts.len(), 2);
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_canvas_schema_relations() -> Result<(), Box<dyn std::error::Error>> {
+    let store = DatabaseStore::open_in_memory()?;
+    dispatch(
+        Command::SeedDemo {
+            name: "ecommerce".to_string(),
+        },
+        &store,
+    )
+    .await;
+
+    // Test reverse relation on categories (categories <- products)
+    let cat_rel = dispatch(
+        Command::SchemaRelations {
+            table: "categories".to_string(),
+        },
+        &store,
+    )
+    .await;
+    assert_eq!(cat_rel["success"], true);
+    assert_eq!(cat_rel["table"], "categories");
+    let reverse = cat_rel["reverse_relations"]
+        .as_array()
+        .ok_or("missing reverse_relations")?;
+    assert_eq!(reverse.len(), 1);
+    assert_eq!(reverse[0]["relation_name"], "products");
+    assert_eq!(reverse[0]["target_col"], "category_id");
+    assert_eq!(reverse[0]["is_reverse"], true);
+
+    // Test forward relation on products (products -> categories)
+    let prod_rel = dispatch(
+        Command::SchemaRelations {
+            table: "products".to_string(),
+        },
+        &store,
+    )
+    .await;
+    assert_eq!(prod_rel["success"], true);
+    let forward = prod_rel["forward_relations"]
+        .as_array()
+        .ok_or("missing forward_relations")?;
+    assert_eq!(forward.len(), 1);
+    assert_eq!(forward[0]["relation_name"], "categories");
+    assert_eq!(forward[0]["source_col"], "category_id");
+    assert_eq!(forward[0]["target_col"], "id");
+    assert_eq!(forward[0]["is_reverse"], false);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_canvas_compile_and_query_hierarchy() -> Result<(), Box<dyn std::error::Error>> {
+    let store = DatabaseStore::open_in_memory()?;
+    dispatch(
+        Command::SeedDemo {
+            name: "ecommerce".to_string(),
+        },
+        &store,
+    )
+    .await;
+
+    use databasecraft_core::canvas::{
+        AggFunc, CanvasAggregation, CanvasColumn, CanvasNestedRelation, CanvasSpec,
+    };
+
+    // Build a perspective:
+    // Categories with:
+    // - columns: id, name
+    // - inline rollup aggregate: product_count (COUNT(products)), total_value (SUM(products.price))
+    // - nested relation: products with sku, title, price
+    let spec = CanvasSpec {
+        root_table: "categories".to_string(),
+        columns: vec![
+            CanvasColumn::new("id"),
+            CanvasColumn::new("name"),
+        ],
+        nested_relations: vec![CanvasNestedRelation {
+            relation_name: "products".to_string(),
+            target_table: "products".to_string(),
+            parent_key_col: "id".to_string(),
+            foreign_key_col: "category_id".to_string(),
+            is_reverse: true,
+            columns: vec![
+                CanvasColumn::new("sku"),
+                CanvasColumn::new("title"),
+                CanvasColumn::new("price"),
+            ],
+            nested_relations: vec![],
+            aggregations: vec![],
+            filters: vec![],
+            limit: None,
+        }],
+        aggregations: vec![
+            CanvasAggregation {
+                target_relation: Some("products".to_string()),
+                target_col: "id".to_string(),
+                func: AggFunc::Count,
+                alias: "product_count".to_string(),
+            },
+            CanvasAggregation {
+                target_relation: Some("products".to_string()),
+                target_col: "price".to_string(),
+                func: AggFunc::Sum,
+                alias: "total_category_value".to_string(),
+            },
+        ],
+        filters: vec![],
+        sort: vec![],
+        limit: Some(10),
+        offset: None,
+    };
+
+    // 1. Test SQL Compilation
+    let comp_res = dispatch(
+        Command::CanvasCompileSql { spec: spec.clone() },
+        &store,
+    )
+    .await;
+    assert_eq!(comp_res["success"], true);
+    let compiled_sql = comp_res["sql"].as_str().ok_or("missing sql")?;
+    assert!(compiled_sql.contains("json_group_array"));
+    assert!(compiled_sql.contains("json_object"));
+    assert!(compiled_sql.contains("total_category_value"));
+
+    // 2. Test Execution and Non-1NF JSON Nesting
+    let query_res = dispatch(
+        Command::CanvasQuery { spec },
+        &store,
+    )
+    .await;
+    assert_eq!(query_res["success"], true);
+    let data = query_res["result"]["data"].as_array().ok_or("missing data")?;
+    assert_eq!(data.len(), 3); // 3 categories
+
+    // Category 1: Audio Hardware has 2 products (AUD-900: $349, MIC-042: $799 -> total $1148)
+    let cat1 = &data[0];
+    assert_eq!(cat1["name"], "Audio Hardware");
+    assert_eq!(cat1["product_count"], 2);
+    assert_eq!(cat1["total_category_value"], 1148.0);
+
+    let cat1_products = cat1["products"].as_array().ok_or("missing nested products")?;
+    assert_eq!(cat1_products.len(), 2);
+    assert_eq!(cat1_products[0]["sku"], "AUD-900");
+    assert_eq!(cat1_products[1]["sku"], "MIC-042");
+
+    // Category 2: Optics & Lenses has 2 products (OPT-35A: $1850, OPT-85A: $2100 -> total $3950)
+    let cat2 = &data[1];
+    assert_eq!(cat2["name"], "Optics & Lenses");
+    assert_eq!(cat2["product_count"], 2);
+    assert_eq!(cat2["total_category_value"], 3950.0);
+
+    // Category 3: Studio Furniture has 1 product (DSK-PRO: $2450)
+    let cat3 = &data[2];
+    assert_eq!(cat3["name"], "Studio Furniture");
+    assert_eq!(cat3["product_count"], 1);
+    assert_eq!(cat3["total_category_value"], 2450.0);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_canvas_hostile_input_fence() -> Result<(), Box<dyn std::error::Error>> {
+    let store = DatabaseStore::open_in_memory()?;
+    use databasecraft_core::canvas::{CanvasColumn, CanvasSpec};
+
+    // SQL injection attempt via root_table
+    let bad_spec = CanvasSpec {
+        root_table: "categories; DROP TABLE products;--".to_string(),
+        columns: vec![CanvasColumn::new("id")],
+        nested_relations: vec![],
+        aggregations: vec![],
+        filters: vec![],
+        sort: vec![],
+        limit: None,
+        offset: None,
+    };
+
+    let res = dispatch(Command::CanvasQuery { spec: bad_spec }, &store).await;
+    assert_eq!(res["success"], false);
+    assert!(res["error"].as_str().unwrap_or("").contains("illegal characters"));
     Ok(())
 }

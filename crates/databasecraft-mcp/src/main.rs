@@ -224,6 +224,24 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Inspect forward (N:1) and reverse (1:N) foreign-key relationships for a table
+    SchemaRelations {
+        #[arg(long)]
+        table: String,
+        #[arg(long)]
+        db: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Execute a Relational Canvas perspective query from a JSON spec string
+    CanvasQuery {
+        #[arg(long)]
+        spec: String,
+        #[arg(long)]
+        db: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
     /// List all registered commands in the Craft command bus (id, label, signature)
     #[command(name = "commands")]
     Registry {
@@ -810,6 +828,45 @@ fn main() {
                 }
             }
         }
+        Commands::SchemaRelations { table, db, json } => {
+            let store = open_store(db.as_deref());
+            let res = rt.block_on(dispatch(Command::SchemaRelations { table }, &store));
+            if json {
+                println!("{res}");
+            } else if res["success"] == true {
+                println!("Table: {}", res["table"].as_str().unwrap_or(""));
+                println!("Forward Relations (N:1):");
+                if let Some(fw) = res["forward_relations"].as_array() {
+                    for r in fw {
+                        println!("  - {} -> {}.{} (via {})", r["label"], r["table"], r["target_col"], r["source_col"]);
+                    }
+                }
+                println!("Reverse Relations (1:N):");
+                if let Some(rev) = res["reverse_relations"].as_array() {
+                    for r in rev {
+                        println!("  - {} <- {}.{} (via {})", r["label"], r["table"], r["target_col"], r["source_col"]);
+                    }
+                }
+            } else {
+                eprintln!("Error: {}", res["error"]);
+            }
+        }
+        Commands::CanvasQuery { spec, db, json } => {
+            let store = open_store(db.as_deref());
+            match serde_json::from_str::<databasecraft_core::canvas::CanvasSpec>(&spec) {
+                Ok(parsed_spec) => {
+                    let res = rt.block_on(dispatch(Command::CanvasQuery { spec: parsed_spec }, &store));
+                    if json {
+                        println!("{res}");
+                    } else if res["success"] == true {
+                        println!("{}", serde_json::to_string_pretty(&res["result"]).unwrap_or_default());
+                    } else {
+                        eprintln!("Canvas Query Error: {}", res["error"]);
+                    }
+                }
+                Err(e) => eprintln!("Failed to parse CanvasSpec JSON: {e}"),
+            }
+        }
         Commands::Registry { json } => {
             let registry = command_registry();
             if json {
@@ -1244,6 +1301,39 @@ pub fn tools_list() -> Value {
                 "type": "object",
                 "properties": {}
             }
+        },
+        {
+            "name": "canvas_query",
+            "description": "Execute a hierarchical Relational Canvas perspective query with nested subqueries and rollups (Ultorg-style Non-1NF)",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "spec": { "type": "object", "description": "CanvasSpec JSON specifying root_table, columns, nested_relations, and aggregations" }
+                },
+                "required": ["spec"]
+            }
+        },
+        {
+            "name": "canvas_compile",
+            "description": "Compile a Relational Canvas perspective specification into ANSI/SQLite JSON SQL without executing",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "spec": { "type": "object", "description": "CanvasSpec JSON object" }
+                },
+                "required": ["spec"]
+            }
+        },
+        {
+            "name": "db_schema_relations",
+            "description": "Inspect forward (N:1) and reverse (1:N) foreign-key relationships for a table to discover suggested joins and compact joins",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "table": { "type": "string", "description": "Table name to discover relations for" }
+                },
+                "required": ["table"]
+            }
         }
     ])
 }
@@ -1442,6 +1532,24 @@ pub fn call_tool(rt: &Runtime, store: &DatabaseStore, name: &str, args: &Value) 
             ))
         }
         "db_list_blueprints" => rt.block_on(dispatch(Command::ListBlueprints, store)),
+        "canvas_query" => {
+            let spec_val = args.get("spec").cloned().unwrap_or(Value::Null);
+            match serde_json::from_value::<databasecraft_core::canvas::CanvasSpec>(spec_val) {
+                Ok(spec) => rt.block_on(dispatch(Command::CanvasQuery { spec }, store)),
+                Err(e) => json!({ "success": false, "error": format!("Invalid CanvasSpec JSON: {e}") }),
+            }
+        }
+        "canvas_compile" => {
+            let spec_val = args.get("spec").cloned().unwrap_or(Value::Null);
+            match serde_json::from_value::<databasecraft_core::canvas::CanvasSpec>(spec_val) {
+                Ok(spec) => rt.block_on(dispatch(Command::CanvasCompileSql { spec }, store)),
+                Err(e) => json!({ "success": false, "error": format!("Invalid CanvasSpec JSON: {e}") }),
+            }
+        }
+        "db_schema_relations" => {
+            let table = args["table"].as_str().unwrap_or("").to_string();
+            rt.block_on(dispatch(Command::SchemaRelations { table }, store))
+        }
         unknown => json!({ "success": false, "error": format!("Unknown tool '{unknown}'") }),
     }
 }
