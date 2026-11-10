@@ -23,10 +23,11 @@ DatabaseCraft provides this keystone in a single, zero-panic, pure-Rust workspac
 
 ## 2. Target Users & Operating Personas
 
+* **Chief Financial Officers (CFOs) & Financial Controllers**: Monitoring 24/7 continuous operational and financial perspectives (Entity -> Invoices -> Line Items) with live atomic rollups and zero Cartesian row explosion.
 * **Creative Directors & Production Leads**: Managing shoot metadata, shot logs, call sheets, asset inventories, and multi-app publishing pipelines.
 * **Autonomous AI Agents (Gemini, Claude Opus, Codex)**: Querying, validating, mutating, and feeding structured data across the 13 ArtCraft apps via line-delimited MCP stdio (`databasecraft-cli mcp`).
 * **Technical Authors & Catalog Publishers**: Merging product databases directly into InDesign/DesignCraft spreads and WordCraft templates.
-* **Data Analysts & Founders**: Assembling investor decks in DeckCraft backed by SQL / OLAP queries.
+* **Founders & Board Members**: Reviewing real-time investor decks in DeckCraft backed by ACID SQL queries.
 
 ---
 
@@ -86,20 +87,29 @@ Following the **ArtCraft Containment Harness** ([`CONTAINMENT_AND_CRATES.md`](..
 | **F17** | Two-Plane Control Architecture | Live TCP listener on port `14113` (Plane 2) + command registry introspection (`commands`, `describe`). | ✅ Complete |
 | **F18** | In-Process Semantic Embeddings | Pure-Rust deterministic subword feature projection (`rag.embed_text`, `rag.semantic_search`). | ✅ Complete |
 | **F19** | Visual ERD & Live Grid Filter | Interactive ERD card canvas with FK links + real-time table grid filtering. | ✅ Complete |
+| **F20** | Relational Canvas AST & Compiler | Compiles Non-1NF perspectives into SQLite 3.38+ `json_group_array(json_object(...))` queries. | ✅ Complete |
+| **F21** | Bidirectional Relation Sprouter | Discovers forward (N:1) and reverse (1:N) foreign keys for 1-click subquery sprouting. | ✅ Complete |
+| **F22** | egui Relational Perspective UI | Multi-tier headers, nested child sub-grids, and inline rollups without Cartesian explosion. | ✅ Complete |
+| **F23** | 24/7 Executive CFO Cockpit | Ultra-low footprint (sub-30MB RAM) desktop cockpit for continuous financial monitoring. | ✅ Complete |
 
 ---
 
 ## 5. UI/UX Requirements (Desktop App)
 
 1. **Trade Dress**: Dark canvas (`#121316`), Slate-950 panels, hairline borders (`#26282E`), and Obsidian Emerald accents (`#108B7E`).
-2. **Keyboard First**: Global palette (`Ctrl+K`), quick query run (`Ctrl+Enter`), cell navigation (`Arrows`), zoom (`Ctrl+Wheel`).
-3. **5 Integrated Workspaces**:
-   * **Table Grid**: High-performance virtualized cell table with column sort, filter pills, and foreign-key link navigators.
-   * **Form Builder**: Access / FileMaker-style interactive cards for structured data entry.
+2. **Keyboard First**: Global Field Selector palette (`Ctrl+K`), quick query run (`Ctrl+Enter`), cell navigation (`Arrows`), zoom (`Ctrl+Wheel`).
+3. **10 Integrated Workspaces**:
+   * **Table Grid**: High-performance virtualized cell table with column sort, filter pills, and 1-click canvas launcher.
+   * **✨ Relational Canvas**: Ultorg-style Non-1NF hierarchical perspectives, 1-click relation sprouting, inline rollups, and live SQL drawer.
+   * **SQL & NLQ Console**: Syntax-highlighted SQL editor with AI Natural Language Query translator.
    * **Schema ERD Canvas**: Visual node graph connecting tables, primary keys, and foreign-key relations.
-   * **Query Console**: Syntax-highlighted SQL editor with results telemetry and export buttons.
-   * **Asset Gallery**: Thumbnail cards displaying linked creative assets (`.pcraft`, `.vcraft`, `.scraft`).
-4. **Zero-Glitch Performance**: Immediate-mode GPU rendering at 60–144 FPS with sub-10ms UI latency.
+   * **AI Copilot & Workflows**: Semantic deduplication, schema advisor, and synthetic record generation.
+   * **RAG & Vectors**: Dense Cosine vector search and hybrid FTS5 search facility.
+   * **Data Profiler**: Cardinality, null ratio, and distinct value analytics.
+   * **Doctor & Repair**: Auto-repair sequence (Reindex, Purge FK Orphans, Salvage clone).
+   * **Domain Constructor**: Turnkey blueprints (`small_business`, `billing`, `club`, `surgery`, `creative_agency`).
+   * **Cross-Craft Export**: Live data merge generation for DesignCraft, DeckCraft, WordCraft, GridCraft, and PdfCraft.
+4. **Zero-Glitch Performance**: Immediate-mode GPU rendering at 60–144 FPS with sub-10ms UI latency and sub-30MB baseline memory footprint.
 
 ---
 

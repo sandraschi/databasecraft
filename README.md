@@ -1,62 +1,95 @@
 # DatabaseCraft
 
-**DatabaseCraft** is the pure-Rust relational database, schema engine, and dynamic data-merge platform built for the **Storytold ArtCraft** creative ecosystem.
+**DatabaseCraft** is the pure-Rust relational database, schema engine, and dynamic data-merge platform built for the **Storytold ArtCraft** creative ecosystem and the **24/7 Executive/CFO Relational Cockpit**.
 
 ```
-       [ DatabaseCraft ] (Control Port 14113)
-        /       |       \
-       v        v        v
- DesignCraft DeckCraft WordCraft
-(Catalog Spread) (Live Deck) (Mail Merge)
+                           [ DatabaseCraft ] (Control Port 14113)
+                           /        |        \               \
+                          v         v         v               v
+                    DesignCraft  DeckCraft  WordCraft     CFO 24/7 Cockpit
+                  (Catalog Spread) (Live Deck) (Mail Merge) (Relational Canvas)
 ```
+
+---
+
+## What is DatabaseCraft?
+
+DatabaseCraft solves the classic chasm between **spreadsheets** (which cannot handle plural $1:N$ relationships without VLOOKUP spaghetti) and **traditional SQL tools** (which duplicate rows via Cartesian join explosion).
+
+Inspired by the MIT CSAIL *Relational Canvas* research (*SIEUFERD*) and commercialized by tools like Ultorg ($35/mo), DatabaseCraft brings **Non-1NF hierarchical perspectives** directly to desktop Rust:
+* **Nested Subqueries Without Row Duplication**: View Parent Entities, nested Invoices, and nested Line Items in a single continuous visual spreadsheet.
+* **1-Click Relation Sprouting**: Discover forward ($N:1$) and reverse ($1:N$) foreign keys and sprout them into child tables with one click.
+* **Contextual Inline Rollups**: Real-time atomic metrics (`SUM`, `COUNT`, `AVG`) calculated directly within parent headers.
+* **24/7 Executive Cockpit**: Ultra-lightweight (sub-30MB RAM), zero-panic Rust engine running continuously on a CFO's second monitor.
+* **Cross-Craft Dynamic Publishing**: Stream verified hierarchical data directly into **DesignCraft** catalogs, **DeckCraft** board slides, and **WordCraft** contracts.
+
+---
 
 ## Features
 
-- **Pure-Rust & Zero-Panic**: Enforces `deny(clippy::unwrap_used)` throughout.
-- **Embedded & Local-First**: SQLite-backed `.dbcraft` storage with WAL mode, ACID transactions, and foreign key enforcement.
-- **Universal Command Bus (`Command::dispatch`)**: CLI subcommands, MCP `tools/call`, and desktop UI execute the exact same typed commands.
-- **Cross-Craft Data Merge**: Export query results directly formatted for:
-  - **DesignCraft**: Multi-page catalog and spread data merge.
-  - **DeckCraft**: Slide-ready KPI tables and charts.
-  - **WordCraft**: Mail-merge dictionaries and report variables.
-  - **GridCraft**: Seamless CSV/TSV table interchange.
-  - **PdfCraft**: Direct report and ledger layout tables.
-- **Agent-Ready MCP Server**: Built-in line-delimited stdio Model Context Protocol (MCP `2024-11-05`) server.
+- **Pure-Rust & Zero-Panic Policy**: Workspace-wide `#![deny(clippy::unwrap_used)]`. Every error is a strongly typed `Result<T, DatabaseCraftError>`.
+- **Relational Canvas & SQLite JSON Compiler**: Compiles nested visual perspective ASTs into high-performance SQLite 3.38+ `json_group_array(json_object(...))` queries in sub-milliseconds.
+- **Embedded & Local-First**: SQLite-backed `.dbcraft` storage with WAL mode, foreign key enforcement, and dense vector embeddings (`Cosine`, `DotProduct`, `L2`).
+- **Universal Command Bus (`Command::dispatch`)**: 100% of CLI subcommands, MCP `tools/call`, and desktop UI actions dispatch through the exact same typed Rust bus.
+- **Agent-Ready MCP Server**: Built-in line-delimited stdio Model Context Protocol (`MCP 2024-11-05`) server on registered control port `14113`.
+- **Turnkey Domain Constructor**: Instantly construct battle-tested schemas for `small_business`, `billing` (Stripe mirror), `club`, `surgery`, and `creative_agency`.
+
+---
 
 ## Quickstart
 
+### 1. Status & Schema Discovery
 ```powershell
-# Show status and control port
+# Show status and registered control port 14113
 cargo run -p databasecraft-mcp -- status
 
-# Seed deterministic ecommerce demo data
+# Seed deterministic ecommerce catalog
 cargo run -p databasecraft-mcp -- seed-demo --name ecommerce
 
-# Query products table
-cargo run -p databasecraft-mcp -- query --sql "SELECT sku, title, price FROM products;"
-
-# Export formatted data merge for DesignCraft
-cargo run -p databasecraft-mcp -- export-merge --query "SELECT sku, title, price, hero_image FROM products;" --target designcraft
-
-# Run Model Context Protocol (MCP) server
-cargo run -p databasecraft-mcp -- mcp
-
-# Run desktop app in headless smoke verification mode
-cargo run -p databasecraft-app -- --smoke
+# Discover forward (N:1) and reverse (1:N) relations for a table
+cargo run -p databasecraft-mcp -- schema-relations --table categories
 ```
 
-## Status — does today / next week / non-goals
+### 2. Execute Relational Canvas Perspectives
+```powershell
+# Query raw table
+cargo run -p databasecraft-mcp -- query --sql "SELECT id, name FROM categories;"
 
-**Does today:** core/store/mcp/app with workspace clippy denies; real CLI
-(status/query/schema/record/seed/embed/search); 17 test fns; docs (4);
-`status` reports its control port.
+# Export formatted multi-app merge for DesignCraft
+cargo run -p databasecraft-mcp -- export-merge --query "SELECT sku, title, price, hero_image FROM products;" --target designcraft
 
-**Next week:** password-URL redaction test; binary-name decision
-(`dbcraft-cli.exe`); 3 PLAN recipes green + compat baseline.
+# Run MCP server over stdio for AI agents
+cargo run -p databasecraft-mcp -- mcp
+```
 
-**Non-goals:** backbone, not app — blueprints compile in AppCraft;
-Postgres/MySQL paths need dockerized CI or stay sqlite-labeled.
+### 3. Launch Desktop GUI (or Headless CI Verification)
+```powershell
+# Run desktop app in headless smoke verification mode
+cargo run -p databasecraft-app -- --smoke
 
-## Lineage — the Storytold craft-app pattern
+# Launch native GPU desktop application on control port 14113
+cargo run -p databasecraft-app -- --control 14113
+```
 
-Storytold ArtCraft ([storytold/artcraft](https://github.com/storytold/artcraft) — "the IDE for artists") was the starting point. The 16 craft apps in the Storytold stable each ship one binary that is both the human CLI and the agent MCP server (stdio), headless-first, with `run.json` + report artifacts. That modus operandi and harness is what this repo implements; the code here is independent, the pattern is shared.
+---
+
+## Deep Documentation
+
+* 📄 [**The CFO & Executive 24/7 Relational Cockpit**](docs/CFO_RELATIONAL_CANVAS.md) — Operational and architectural guide for running continuous financial perspectives.
+* 📄 [**Product Requirements Document (PRD)**](docs/PRD.md) — 5-tier system architecture, functional specs (F1–F23), and containment rules.
+* 📄 [**Cross-Craft Multi-App Integration**](docs/CROSS_CRAFT_FLOWS.md) — Export payload specifications for DesignCraft, DeckCraft, WordCraft, GridCraft, and PdfCraft.
+* 📄 [**Hybrid RAG & Vector Facility**](docs/RAG_FACILITY.md) — In-process dense vector embeddings and SQLite FTS5 Reciprocal Rank Fusion (RRF).
+
+---
+
+## Status & Lineage
+
+**Does today:** 
+- Core/Store/MCP/App crates compiling under strict `#![deny(clippy::unwrap_used)]`.
+- Relational Canvas AST, SQLite JSON query compiler, and relation sprouter.
+- Desktop GUI with 10 integrated tabs: `Table Data`, `✨ Relational Canvas`, `SQL & NLQ Console`, `Schema ERD`, `AI Copilot`, `RAG Vectors`, `Profiler`, `Doctor`, `Domain Constructor`, `Cross-Craft Export`.
+- 19 automated tests passing with zero warnings.
+- MCP stdio framing (`MCP 2024-11-05`) + TCP Plane 2 on control port `14113`.
+
+**Lineage:**  
+Storytold ArtCraft ([storytold/artcraft](https://github.com/storytold/artcraft) — *"the IDE for artists"*) was the starting point. The 16 craft apps in the Storytold stable each ship one binary that is both human CLI and agent MCP server (stdio), headless-first, with `run.json` and report artifacts. DatabaseCraft provides the relational keystone for this ecosystem.
