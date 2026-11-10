@@ -45,6 +45,224 @@ pub enum AiSubTab {
     Ingest,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CanvasDensity {
+    Compact,
+    Standard,
+    Relaxed,
+}
+
+impl CanvasDensity {
+    pub fn row_height(&self) -> f32 {
+        match self {
+            CanvasDensity::Compact => 22.0,
+            CanvasDensity::Standard => 28.0,
+            CanvasDensity::Relaxed => 34.0,
+        }
+    }
+
+    pub fn font_size(&self) -> f32 {
+        match self {
+            CanvasDensity::Compact => 11.5,
+            CanvasDensity::Standard => 13.0,
+            CanvasDensity::Relaxed => 14.5,
+        }
+    }
+
+    pub fn cell_padding(&self) -> (i8, i8) {
+        match self {
+            CanvasDensity::Compact => (8, 3),
+            CanvasDensity::Standard => (12, 5),
+            CanvasDensity::Relaxed => (16, 8),
+        }
+    }
+}
+
+fn format_currency(val: f64) -> String {
+    let sign = if val < 0.0 { "-" } else { "" };
+    let abs = val.abs();
+    let int_part = abs.trunc() as u64;
+    let frac_part = (abs.fract() * 100.0).round() as u64;
+
+    // Add thousands commas
+    let s = int_part.to_string();
+    let mut formatted_int = String::new();
+    let len = s.len();
+    for (i, ch) in s.chars().enumerate() {
+        if i > 0 && (len - i).is_multiple_of(3) {
+            formatted_int.push(',');
+        }
+        formatted_int.push(ch);
+    }
+    format!("{sign}${formatted_int}.{frac_part:02}")
+}
+
+fn render_status_pill(
+    ui: &mut egui::Ui,
+    text: &str,
+    bg: Color32,
+    border: Color32,
+    text_color: Color32,
+    font_size: f32,
+) {
+    egui::Frame::new()
+        .fill(bg)
+        .stroke(egui::Stroke::new(1.0, border))
+        .corner_radius(3)
+        .inner_margin(egui::Margin::symmetric(6, 2))
+        .show(ui, |ui| {
+            let font_id = egui::FontId::new(font_size - 1.0, egui::FontFamily::Proportional);
+            ui.label(
+                egui::RichText::new(text.to_uppercase())
+                    .font(font_id)
+                    .color(text_color)
+                    .strong(),
+            );
+        });
+}
+
+fn render_formatted_cell(
+    ui: &mut egui::Ui,
+    col_name: &str,
+    val: &Value,
+    density: CanvasDensity,
+) {
+    let font_size = density.font_size();
+    if val.is_null() {
+        ui.colored_label(Color32::from_rgb(107, 114, 128), "—");
+        return;
+    }
+
+    if let Some(s) = val.as_str() {
+        let s_lower = s.to_lowercase();
+        if s_lower == "shipped"
+            || s_lower == "delivered"
+            || s_lower == "print"
+            || s_lower == "active"
+            || s_lower == "completed"
+        {
+            render_status_pill(
+                ui,
+                s,
+                Color32::from_rgba_unmultiplied(16, 185, 129, 45),
+                Color32::from_rgb(52, 211, 153),
+                Color32::from_rgb(167, 243, 208),
+                font_size,
+            );
+        } else if s_lower == "processing" || s_lower == "hold" || s_lower == "in_progress" {
+            render_status_pill(
+                ui,
+                s,
+                Color32::from_rgba_unmultiplied(14, 165, 233, 45),
+                Color32::from_rgb(56, 189, 248),
+                Color32::from_rgb(186, 230, 253),
+                font_size,
+            );
+        } else if s_lower == "pending" || s_lower == "review" {
+            render_status_pill(
+                ui,
+                s,
+                Color32::from_rgba_unmultiplied(245, 158, 11, 45),
+                Color32::from_rgb(251, 191, 36),
+                Color32::from_rgb(254, 243, 199),
+                font_size,
+            );
+        } else if s_lower == "ng"
+            || s_lower == "cancelled"
+            || s_lower == "failed"
+            || s_lower == "inactive"
+        {
+            render_status_pill(
+                ui,
+                s,
+                Color32::from_rgba_unmultiplied(239, 68, 68, 45),
+                Color32::from_rgb(248, 113, 113),
+                Color32::from_rgb(254, 202, 202),
+                font_size,
+            );
+        } else if col_name.contains("date") || col_name.contains("time") {
+            let font_id = egui::FontId::new(font_size - 1.0, egui::FontFamily::Monospace);
+            ui.label(
+                egui::RichText::new(s)
+                    .font(font_id)
+                    .color(Color32::from_rgb(203, 213, 225)),
+            );
+        } else {
+            ui.label(
+                egui::RichText::new(s)
+                    .size(font_size)
+                    .color(Color32::from_rgb(241, 245, 249))
+                    .strong(),
+            );
+        }
+    } else if let Some(n) = val.as_f64() {
+        let col_lower = col_name.to_lowercase();
+        if col_lower.contains("price")
+            || col_lower.contains("freight")
+            || col_lower.contains("cost")
+            || col_lower.contains("total")
+            || col_lower.contains("usd")
+            || col_lower.contains("arr")
+            || col_lower.contains("mrr")
+            || col_lower.contains("value")
+        {
+            let curr = format_currency(n);
+            let font_id = egui::FontId::new(font_size, egui::FontFamily::Monospace);
+            ui.label(
+                egui::RichText::new(curr)
+                    .font(font_id)
+                    .color(Color32::from_rgb(52, 211, 153))
+                    .strong(),
+            );
+        } else if col_lower.contains("pct")
+            || col_lower.contains("discount")
+            || col_lower.contains("margin")
+            || col_lower.contains("churn")
+        {
+            let pct_val = if n <= 1.0 && n > 0.0 && col_lower.contains("discount") {
+                n * 100.0
+            } else {
+                n
+            };
+            let font_id = egui::FontId::new(font_size, egui::FontFamily::Monospace);
+            ui.label(
+                egui::RichText::new(format!("{:.1}%", pct_val))
+                    .font(font_id)
+                    .color(Color32::from_rgb(56, 189, 248)),
+            );
+        } else if col_lower.contains("quantity")
+            || col_lower.contains("inventory")
+            || col_lower.contains("count")
+            || col_lower.contains("seats")
+        {
+            let font_id = egui::FontId::new(font_size, egui::FontFamily::Monospace);
+            ui.label(
+                egui::RichText::new(format!("{}", n as i64))
+                    .font(font_id)
+                    .color(Color32::from_rgb(186, 230, 253))
+                    .strong(),
+            );
+        } else {
+            let font_id = egui::FontId::new(font_size, egui::FontFamily::Monospace);
+            ui.label(
+                egui::RichText::new(format!("{n}"))
+                    .font(font_id)
+                    .color(Color32::from_rgb(226, 232, 240)),
+            );
+        }
+    } else if let Some(b) = val.as_bool() {
+        let text = if b { "TRUE" } else { "FALSE" };
+        let color = if b {
+            Color32::from_rgb(52, 211, 153)
+        } else {
+            Color32::from_rgb(148, 163, 184)
+        };
+        ui.label(egui::RichText::new(text).size(font_size).color(color));
+    } else {
+        ui.label(egui::RichText::new(val.to_string()).size(font_size));
+    }
+}
+
 pub struct DatabaseCraftGui {
     pub store: Arc<DatabaseStore>,
     pub runtime: Arc<Runtime>,
@@ -96,6 +314,7 @@ pub struct DatabaseCraftGui {
     pub canvas_rollup_col: String,
     pub canvas_rollup_func: AggFunc,
     pub canvas_rollup_alias: String,
+    pub canvas_density: CanvasDensity,
     // CTO Operations Watchdog and Notification Bus state
     pub notifications: Vec<CraftNotification>,
     pub unread_alerts_count: usize,
@@ -169,6 +388,7 @@ impl DatabaseCraftGui {
             canvas_rollup_col: "price".to_string(),
             canvas_rollup_func: AggFunc::Sum,
             canvas_rollup_alias: "total_value".to_string(),
+            canvas_density: CanvasDensity::Standard,
             notifications: Vec::new(),
             unread_alerts_count: 0,
             watchdog_last_check: None,
@@ -783,6 +1003,31 @@ impl eframe::App for DatabaseCraftGui {
                     self.status_message = "Seeded Executive KPI Metrics".to_string();
                 }
 
+                if ui
+                    .button(
+                        egui::RichText::new("🚢 Seed: Northwind Traders")
+                            .color(Color32::from_rgb(52, 211, 153))
+                            .strong(),
+                    )
+                    .clicked()
+                {
+                    let _ = self.runtime.block_on(dispatch(
+                        Command::SeedDemo {
+                            name: "northwind".to_string(),
+                        },
+                        &self.store,
+                    ));
+                    self.refresh_tables();
+                    self.selected_table = Some("customers".to_string());
+                    self.load_table_data("customers");
+                    self.init_canvas_for_table("customers");
+                    self.sprout_relation("orders", true);
+                    self.active_tab = ActiveTab::Canvas;
+                    self.status_message =
+                        "Seeded Northwind Traders Commercial Dataset: Customers -> Orders (1:N)"
+                            .to_string();
+                }
+
                 if ui.button("🧹 Vacuum").clicked() {
                     let _ = self
                         .runtime
@@ -1069,6 +1314,24 @@ impl eframe::App for DatabaseCraftGui {
                     if ui.button("⟳ Reload").clicked() {
                         self.run_canvas_query();
                     }
+
+                    ui.separator();
+                    ui.label("Density:");
+                    ui.selectable_value(
+                        &mut self.canvas_density,
+                        CanvasDensity::Compact,
+                        "Compact",
+                    );
+                    ui.selectable_value(
+                        &mut self.canvas_density,
+                        CanvasDensity::Standard,
+                        "Standard",
+                    );
+                    ui.selectable_value(
+                        &mut self.canvas_density,
+                        CanvasDensity::Relaxed,
+                        "Relaxed",
+                    );
                 });
 
                 // Sprout bar: Forward and reverse relationships discovered
@@ -1232,219 +1495,428 @@ impl eframe::App for DatabaseCraftGui {
                                 }
                             });
 
+                            ui.add_space(2.0);
+
+                            let density = self.canvas_density;
+                            let font_size = density.font_size();
+                            let pad = density.cell_padding();
+                            let min_row_h = density.row_height();
+
+                            // Extract visible root columns
+                            let root_cols: Vec<String> = self
+                                .canvas_spec
+                                .as_ref()
+                                .map(|s| {
+                                    s.columns
+                                        .iter()
+                                        .filter(|c| c.visible)
+                                        .map(|c| c.alias.clone().unwrap_or_else(|| c.name.clone()))
+                                        .collect()
+                                })
+                                .unwrap_or_default();
+
+                            // Extract nested relations
+                            let nested_rels = self
+                                .canvas_spec
+                                .as_ref()
+                                .map(|s| s.nested_relations.clone())
+                                .unwrap_or_default();
+
+                            // Extract aggregations
+                            let rollups = self
+                                .canvas_spec
+                                .as_ref()
+                                .map(|s| s.aggregations.clone())
+                                .unwrap_or_default();
+
                             egui::ScrollArea::both().show(ui, |ui| {
-                                for (row_idx, record) in filtered_records.iter().enumerate() {
-                                    if let Some(obj) = record.as_object() {
-                                        egui::Frame::group(ui.style())
-                                            .fill(if row_idx % 2 == 0 {
-                                                Color32::from_rgb(22, 24, 28)
-                                            } else {
-                                                Color32::from_rgb(28, 30, 35)
-                                            })
-                                            .stroke(egui::Stroke::new(
-                                                1.0,
-                                                Color32::from_rgb(45, 48, 56),
-                                            ))
-                                            .inner_margin(8.0)
-                                            .show(ui, |ui| {
-                                                // Parent Row Banner
-                                                ui.horizontal_wrapped(|ui| {
-                                                    ui.colored_label(
-                                                        emerald_bright,
-                                                        format!("#{}", row_idx + 1),
+                                // Outer container with hairline borders
+                                egui::Frame::group(ui.style())
+                                    .fill(Color32::from_rgb(17, 19, 23))
+                                    .stroke(egui::Stroke::new(1.0, Color32::from_rgb(38, 42, 50)))
+                                    .inner_margin(0.0)
+                                    .show(ui, |ui| {
+                                        // 1. TIER 1: Table Ownership Header Band
+                                        ui.horizontal(|ui| {
+                                            ui.spacing_mut().item_spacing = Vec2::ZERO;
+
+                                            // Root Table Header Box
+                                            let root_title = format!(
+                                                "🏛️ {} (Root Entity)",
+                                                current_table.to_uppercase()
+                                            );
+                                            egui::Frame::new()
+                                                .fill(Color32::from_rgb(16, 75, 70))
+                                                .stroke(egui::Stroke::new(
+                                                    1.0,
+                                                    Color32::from_rgb(13, 148, 136),
+                                                ))
+                                                .inner_margin(egui::Margin::symmetric(12, 4))
+                                                .show(ui, |ui| {
+                                                    ui.strong(
+                                                        egui::RichText::new(root_title)
+                                                            .size(font_size + 1.0)
+                                                            .color(Color32::WHITE),
                                                     );
-
-                                                    // Primitive attributes
-                                                    for (key, val) in obj {
-                                                        if val.is_array() {
-                                                            continue;
-                                                        }
-                                                        let is_rollup = self
-                                                            .canvas_spec
-                                                            .as_ref()
-                                                            .is_some_and(|s| {
-                                                                s.aggregations
-                                                                    .iter()
-                                                                    .any(|a| a.alias == *key)
-                                                            });
-                                                        if is_rollup {
-                                                            continue;
-                                                        }
-                                                        ui.label(format!("{key}:"));
-                                                        if let Some(s) = val.as_str() {
-                                                            ui.colored_label(
-                                                                Color32::WHITE,
-                                                                egui::RichText::new(s).strong(),
-                                                            );
-                                                        } else if let Some(n) = val.as_f64() {
-                                                            ui.colored_label(sky_blue, format!("{n}"));
-                                                        } else {
-                                                            ui.label(val.to_string());
-                                                        }
-                                                        ui.add_space(4.0);
-                                                    }
-
-                                                    // Rollup badges
-                                                    if let Some(ref spec) = self.canvas_spec {
-                                                        for agg in &spec.aggregations {
-                                                            if let Some(val) = obj.get(&agg.alias) {
-                                                                let formatted = if let Some(n) =
-                                                                    val.as_f64()
-                                                                {
-                                                                    if agg.func == AggFunc::Sum
-                                                                        && (agg
-                                                                            .target_col
-                                                                            .contains("price")
-                                                                            || agg
-                                                                                .target_col
-                                                                                .contains("total"))
-                                                                    {
-                                                                        format!("${:.2}", n)
-                                                                    } else {
-                                                                        format!("{n}")
-                                                                    }
-                                                                } else {
-                                                                    val.to_string()
-                                                                };
-                                                                ui.colored_label(
-                                                                    amber,
-                                                                    egui::RichText::new(format!(
-                                                                        "∑ {}: {}",
-                                                                        agg.alias, formatted
-                                                                    ))
-                                                                    .strong(),
-                                                                );
-                                                                ui.add_space(4.0);
-                                                            }
-                                                        }
-                                                    }
                                                 });
 
-                                                // Sprouted Subquery Tables
-                                                if let Some(ref spec) = self.canvas_spec {
-                                                    for rel in &spec.nested_relations {
-                                                        ui.add_space(4.0);
-                                                        ui.horizontal(|ui| {
+                                            // Nested Subquery Bands
+                                            for rel in &nested_rels {
+                                                let sub_title = format!(
+                                                    "↳ {} (1:N Subquery)",
+                                                    rel.relation_name.to_uppercase()
+                                                );
+                                                egui::Frame::new()
+                                                    .fill(Color32::from_rgb(22, 50, 78))
+                                                    .stroke(egui::Stroke::new(
+                                                        1.0,
+                                                        Color32::from_rgb(14, 165, 233),
+                                                    ))
+                                                    .inner_margin(egui::Margin::symmetric(12, 4))
+                                                    .show(ui, |ui| {
+                                                        ui.strong(
+                                                            egui::RichText::new(sub_title)
+                                                                .size(font_size + 1.0)
+                                                                .color(Color32::from_rgb(
+                                                                    186, 230, 253,
+                                                                )),
+                                                        );
+                                                    });
+                                            }
+
+                                            // Rollups Band
+                                            if !rollups.is_empty() {
+                                                egui::Frame::new()
+                                                    .fill(Color32::from_rgb(66, 48, 16))
+                                                    .stroke(egui::Stroke::new(
+                                                        1.0,
+                                                        Color32::from_rgb(245, 158, 11),
+                                                    ))
+                                                    .inner_margin(egui::Margin::symmetric(12, 4))
+                                                    .show(ui, |ui| {
+                                                        ui.strong(
+                                                            egui::RichText::new("∑ INLINE ROLLUPS")
+                                                                .size(font_size + 1.0)
+                                                                .color(Color32::from_rgb(
+                                                                    254, 243, 199,
+                                                                )),
+                                                        );
+                                                    });
+                                            }
+                                        });
+
+                                        // 2. TIER 2: Column Headers
+                                        ui.horizontal(|ui| {
+                                            ui.spacing_mut().item_spacing = Vec2::ZERO;
+
+                                            let header_bg = Color32::from_rgb(24, 27, 33);
+                                            let border_stroke = egui::Stroke::new(
+                                                1.0,
+                                                Color32::from_rgb(38, 42, 50),
+                                            );
+
+                                            // Row index column header
+                                            egui::Frame::new()
+                                                .fill(header_bg)
+                                                .stroke(border_stroke)
+                                                .inner_margin(egui::Margin::symmetric(8, 5))
+                                                .show(ui, |ui| {
+                                                    ui.colored_label(muted_gray, "#");
+                                                });
+
+                                            // Root table column headers
+                                            for col in &root_cols {
+                                                egui::Frame::new()
+                                                    .fill(header_bg)
+                                                    .stroke(border_stroke)
+                                                    .inner_margin(egui::Margin::symmetric(
+                                                        pad.0, 5,
+                                                    ))
+                                                    .show(ui, |ui| {
+                                                        ui.colored_label(
+                                                            emerald_bright,
+                                                            col.to_uppercase(),
+                                                        );
+                                                    });
+                                            }
+
+                                            // Subquery column headers
+                                            for rel in &nested_rels {
+                                                egui::Frame::new()
+                                                    .fill(Color32::from_rgb(20, 24, 32))
+                                                    .stroke(border_stroke)
+                                                    .inner_margin(egui::Margin::symmetric(6, 5))
+                                                    .show(ui, |ui| {
+                                                        ui.colored_label(sky_blue, "SUB#");
+                                                    });
+
+                                                for c in &rel.columns {
+                                                    if !c.visible {
+                                                        continue;
+                                                    }
+                                                    let col_name =
+                                                        c.alias.as_deref().unwrap_or(&c.name);
+                                                    egui::Frame::new()
+                                                        .fill(Color32::from_rgb(20, 24, 32))
+                                                        .stroke(border_stroke)
+                                                        .inner_margin(egui::Margin::symmetric(
+                                                            pad.0, 5,
+                                                        ))
+                                                        .show(ui, |ui| {
                                                             ui.colored_label(
                                                                 sky_blue,
-                                                                format!(
-                                                                    "  ↳ Subquery: {} (target: {})",
-                                                                    rel.relation_name,
-                                                                    rel.target_table
-                                                                ),
+                                                                col_name.to_uppercase(),
                                                             );
                                                         });
+                                                }
+                                            }
 
-                                                        if let Some(sub_val) =
-                                                            obj.get(&rel.relation_name)
-                                                        {
-                                                            if let Some(sub_rows) =
-                                                                sub_val.as_array()
-                                                            {
-                                                                if sub_rows.is_empty() {
+                                            // Rollup column headers
+                                            for agg in &rollups {
+                                                egui::Frame::new()
+                                                    .fill(Color32::from_rgb(28, 25, 20))
+                                                    .stroke(border_stroke)
+                                                    .inner_margin(egui::Margin::symmetric(
+                                                        pad.0, 5,
+                                                    ))
+                                                    .show(ui, |ui| {
+                                                        ui.colored_label(
+                                                            amber,
+                                                            format!(
+                                                                "∑ {}",
+                                                                agg.alias.to_uppercase()
+                                                            ),
+                                                        );
+                                                    });
+                                            }
+                                        });
+
+                                        // 3. CONTINUOUS ROW BLOCKS
+                                        for (row_idx, record) in filtered_records.iter().enumerate()
+                                        {
+                                            if let Some(obj) = record.as_object() {
+                                                let row_bg = if row_idx % 2 == 0 {
+                                                    Color32::from_rgb(18, 20, 24)
+                                                } else {
+                                                    Color32::from_rgb(24, 27, 33)
+                                                };
+                                                let border_stroke = egui::Stroke::new(
+                                                    1.0,
+                                                    Color32::from_rgb(38, 42, 50),
+                                                );
+
+                                                egui::Frame::new()
+                                                    .fill(row_bg)
+                                                    .stroke(border_stroke)
+                                                    .show(ui, |ui| {
+                                                        ui.horizontal(|ui| {
+                                                            ui.spacing_mut().item_spacing =
+                                                                Vec2::ZERO;
+                                                            ui.spacing_mut().interact_size.y =
+                                                                min_row_h;
+
+                                                            // Row number
+                                                            egui::Frame::new()
+                                                                .stroke(border_stroke)
+                                                                .inner_margin(
+                                                                    egui::Margin::symmetric(
+                                                                        8, pad.1,
+                                                                    ),
+                                                                )
+                                                                .show(ui, |ui| {
                                                                     ui.colored_label(
-                                                                        muted_gray,
-                                                                        "      (No related records)",
+                                                                        emerald_bright,
+                                                                        format!("#{}", row_idx + 1),
                                                                     );
-                                                                } else {
-                                                                    egui::Frame::group(ui.style())
-                                                                        .fill(Color32::from_rgb(
-                                                                            18, 19, 23,
-                                                                        ))
-                                                                        .inner_margin(6.0)
-                                                                        .show(ui, |ui| {
-                                                                            egui::Grid::new(
-                                                                                format!(
-                                                                                    "nested_grid_{}_{}",
-                                                                                    row_idx,
-                                                                                    rel.relation_name
+                                                                });
+
+                                                            // Root columns
+                                                            for col in &root_cols {
+                                                                let val = obj
+                                                                    .get(col)
+                                                                    .unwrap_or(&Value::Null);
+                                                                egui::Frame::new()
+                                                                    .stroke(border_stroke)
+                                                                    .inner_margin(
+                                                                        egui::Margin::symmetric(
+                                                                            pad.0, pad.1,
+                                                                        ),
+                                                                    )
+                                                                    .show(ui, |ui| {
+                                                                        render_formatted_cell(
+                                                                            ui, col, val, density,
+                                                                        );
+                                                                    });
+                                                            }
+
+                                                            // Sprouted subquery tables
+                                                            for rel in &nested_rels {
+                                                                let sub_val = obj
+                                                                    .get(&rel.relation_name)
+                                                                    .unwrap_or(&Value::Null);
+                                                                let sub_rows = sub_val.as_array();
+
+                                                                if let Some(rows) = sub_rows {
+                                                                    if rows.is_empty() {
+                                                                        egui::Frame::new()
+                                                                            .stroke(border_stroke)
+                                                                            .inner_margin(
+                                                                                egui::Margin::symmetric(
+                                                                                    pad.0, pad.1,
                                                                                 ),
                                                                             )
-                                                                            .striped(true)
-                                                                            .spacing(Vec2::new(
-                                                                                12.0, 4.0,
-                                                                            ))
                                                                             .show(ui, |ui| {
-                                                                                ui.weak("  ");
-                                                                                for col in &rel.columns
+                                                                                ui.colored_label(
+                                                                                    muted_gray,
+                                                                                    "— (empty) —",
+                                                                                );
+                                                                            });
+                                                                    } else {
+                                                                        // Render nested aligned sub-table with hairline borders
+                                                                        ui.vertical(|ui| {
+                                                                            ui.spacing_mut()
+                                                                                .item_spacing =
+                                                                                Vec2::ZERO;
+                                                                            for (c_idx, c_row) in
+                                                                                rows.iter()
+                                                                                    .enumerate()
+                                                                            {
+                                                                                let sub_row_bg = if c_idx
+                                                                                    % 2
+                                                                                    == 0
                                                                                 {
-                                                                                    if col.visible {
-                                                                                        ui.colored_label(
-                                                                                            sky_blue,
-                                                                                            col.alias
-                                                                                                .as_deref()
-                                                                                                .unwrap_or(
-                                                                                                    &col.name,
-                                                                                                ),
-                                                                                        );
-                                                                                    }
-                                                                                }
-                                                                                ui.end_row();
+                                                                                    Color32::from_rgb(
+                                                                                        20, 23, 29,
+                                                                                    )
+                                                                                } else {
+                                                                                    Color32::from_rgb(
+                                                                                        26, 30, 38,
+                                                                                    )
+                                                                                };
+                                                                                egui::Frame::new()
+                                                                                    .fill(
+                                                                                        sub_row_bg,
+                                                                                    )
+                                                                                    .stroke(
+                                                                                        border_stroke,
+                                                                                    )
+                                                                                    .show(
+                                                                                        ui,
+                                                                                        |ui| {
+                                                                                            ui.horizontal(|ui| {
+                                                                                    ui.spacing_mut().item_spacing = Vec2::ZERO;
+                                                                                    // Sub-index
+                                                                                    egui::Frame::new()
+                                                                                        .stroke(border_stroke)
+                                                                                        .inner_margin(egui::Margin::symmetric(6, pad.1))
+                                                                                        .show(ui, |ui| {
+                                                                                            ui.weak(format!("{}.", c_idx + 1));
+                                                                                        });
 
-                                                                                for (c_idx, c_row) in
-                                                                                    sub_rows
-                                                                                        .iter()
-                                                                                        .enumerate()
-                                                                                {
-                                                                                    ui.weak(format!(
-                                                                                        "    {}.",
-                                                                                        c_idx + 1
-                                                                                    ));
-                                                                                    if let Some(c_obj) =
-                                                                                        c_row.as_object(
-                                                                                        )
-                                                                                    {
-                                                                                        for col in
-                                                                                            &rel.columns
-                                                                                        {
-                                                                                            if !col.visible
-                                                                                            {
+                                                                                    if let Some(c_obj) = c_row.as_object() {
+                                                                                        for c in &rel.columns {
+                                                                                            if !c.visible {
                                                                                                 continue;
                                                                                             }
-                                                                                            let key =
-                                                                                                col.alias
-                                                                                                    .as_deref()
-                                                                                                    .unwrap_or(
-                                                                                                        &col.name,
-                                                                                                    );
-                                                                                            let val =
-                                                                                                c_obj
-                                                                                                    .get(
-                                                                                                        key,
-                                                                                                    )
-                                                                                                    .unwrap_or(
-                                                                                                        &Value::Null,
-                                                                                                    );
-                                                                                            if val
-                                                                                                .is_null()
-                                                                                            {
-                                                                                                ui.colored_label(muted_gray, "—");
-                                                                                            } else if let Some(n) = val.as_f64() {
-                                                                                                if col.name.contains("price") || col.name.contains("cost") {
-                                                                                                    ui.colored_label(emerald_bright, format!("${:.2}", n));
-                                                                                                } else {
-                                                                                                    ui.colored_label(sky_blue, format!("{n}"));
-                                                                                                }
-                                                                                            } else if let Some(s) = val.as_str() {
-                                                                                                ui.label(s);
-                                                                                            } else {
-                                                                                                ui.label(val.to_string());
-                                                                                            }
+                                                                                            let key = c.alias.as_deref().unwrap_or(&c.name);
+                                                                                            let val = c_obj.get(key).unwrap_or(&Value::Null);
+                                                                                            egui::Frame::new()
+                                                                                                .stroke(border_stroke)
+                                                                                                .inner_margin(egui::Margin::symmetric(pad.0, pad.1))
+                                                                                                .show(ui, |ui| {
+                                                                                                    render_formatted_cell(ui, &c.name, val, density);
+                                                                                                });
                                                                                         }
-                                                                                        ui.end_row();
                                                                                     }
-                                                                                }
-                                                                            });
+                                                                                });
+                                                                                        },
+                                                                                    );
+                                                                            }
+                                                                        });
+                                                                    }
+                                                                } else {
+                                                                    egui::Frame::new()
+                                                                        .stroke(border_stroke)
+                                                                        .inner_margin(
+                                                                            egui::Margin::symmetric(
+                                                                                pad.0, pad.1,
+                                                                            ),
+                                                                        )
+                                                                        .show(ui, |ui| {
+                                                                            ui.colored_label(
+                                                                                muted_gray, "—",
+                                                                            );
                                                                         });
                                                                 }
                                                             }
-                                                        }
-                                                    }
-                                                }
-                                            });
-                                        ui.add_space(4.0);
-                                    }
-                                }
+
+                                                            // Inline Rollups
+                                                            for agg in &rollups {
+                                                                let val = obj
+                                                                    .get(&agg.alias)
+                                                                    .unwrap_or(&Value::Null);
+                                                                egui::Frame::new()
+                                                                    .stroke(border_stroke)
+                                                                    .inner_margin(
+                                                                        egui::Margin::symmetric(
+                                                                            pad.0, pad.1,
+                                                                        ),
+                                                                    )
+                                                                    .show(ui, |ui| {
+                                                                        if let Some(n) =
+                                                                            val.as_f64()
+                                                                        {
+                                                                            let formatted = if agg
+                                                                                .func
+                                                                                == AggFunc::Sum
+                                                                                && (agg
+                                                                                    .target_col
+                                                                                    .contains(
+                                                                                        "price",
+                                                                                    )
+                                                                                    || agg
+                                                                                        .target_col
+                                                                                        .contains(
+                                                                                            "freight",
+                                                                                        )
+                                                                                    || agg
+                                                                                        .target_col
+                                                                                        .contains(
+                                                                                            "total",
+                                                                                        )) {
+                                                                                format_currency(n)
+                                                                            } else {
+                                                                                format!("{n}")
+                                                                            };
+                                                                            let font_id =
+                                                                                egui::FontId::new(
+                                                                                    font_size,
+                                                                                    egui::FontFamily::Monospace,
+                                                                                );
+                                                                            ui.label(
+                                                                                egui::RichText::new(
+                                                                                    formatted,
+                                                                                )
+                                                                                .font(font_id)
+                                                                                .color(amber)
+                                                                                .strong(),
+                                                                            );
+                                                                        } else {
+                                                                            ui.label(
+                                                                                egui::RichText::new(
+                                                                                    val.to_string(),
+                                                                                )
+                                                                                .size(font_size)
+                                                                                .color(amber),
+                                                                            );
+                                                                        }
+                                                                    });
+                                                            }
+                                                        });
+                                                    });
+                                            }
+                                        }
+                                    });
                             });
                         }
                     } else {

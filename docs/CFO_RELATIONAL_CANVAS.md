@@ -117,9 +117,11 @@ cargo run -p databasecraft-app -- --file company_finances.db --control 14113
 ### 4.3 Navigating the Canvas Interface
 1. **Open Table**: Select `customers`, `invoices`, or `entities` from the left sidebar.
 2. **Switch to Perspective**: Click **`✨ Open in Relational Canvas`** or switch to the **`✨ Relational Canvas`** tab.
-3. **Sprout Relations**: Click any blue pill (`+ ⤹ Sprout: subscriptions (1:N)`) to expand nested records.
-4. **Add Metric Rollup**: Click **`🎛 Fields & Joins`**, choose target column (`price`), select `SUM`, enter alias (`total_mrr`), and click **`➕ Add Rollup`**.
-5. **Inspect ANSI SQL**: Toggle **`⚡ View SQL`** to audit the compiled SQLite query and execution latency.
+3. **Sprout Relations**: Click any blue pill (`+ ⤹ Sprout: orders (1:N)`) to expand nested records into the continuous spreadsheet matrix.
+4. **Calibrate Visual Density**: Toggle between **`Compact`** (22px row height for dense financial analysis), **`Standard`** (28px balanced view), and **`Relaxed`** (34px executive presentation mode).
+5. **Auto-Formatted Cell Formatting**: Currencies automatically render with commas and symbols (`$1,850.00`), delivery/billing statuses render as soft pill badges (`[DELIVERED]`, `[PROCESSING]`, `[PENDING]`), and dates render in tabular monospace.
+6. **Add Metric Rollup**: Click **`🎛 Fields & Joins`**, choose target column (`freight` or `unit_price`), select `SUM`, enter alias (`total_revenue`), and click **`➕ Add Rollup`**.
+7. **Inspect ANSI SQL**: Toggle **`⚡ View SQL`** to audit the compiled SQLite query and execution latency.
 
 ---
 

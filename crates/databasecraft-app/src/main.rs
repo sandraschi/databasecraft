@@ -297,6 +297,65 @@ mod tests {
     }
 
     #[test]
+    fn test_northwind_sprouted_perspective_and_density() -> Result<(), Box<dyn std::error::Error>> {
+        use databasecraft_core::canvas::AggFunc;
+
+        let store = Arc::new(DatabaseStore::open_in_memory()?);
+        let rt = Arc::new(tokio::runtime::Runtime::new()?);
+
+        // Seed Northwind commercial dataset
+        rt.block_on(dispatch(
+            Command::SeedDemo {
+                name: "northwind".to_string(),
+            },
+            &store,
+        ));
+
+        let mut gui = gui::DatabaseCraftGui::new(store.clone(), rt.clone());
+        gui.selected_table = Some("customers".to_string());
+        gui.init_canvas_for_table("customers");
+
+        assert_eq!(gui.canvas_root_table.as_deref(), Some("customers"));
+        assert_eq!(gui.canvas_density, gui::CanvasDensity::Standard);
+
+        // Test density switching
+        gui.canvas_density = gui::CanvasDensity::Compact;
+        assert_eq!(gui.canvas_density.row_height(), 22.0);
+
+        // Sprout orders (1:N)
+        gui.sprout_relation("orders", true);
+        let spec = gui.canvas_spec.as_ref().ok_or("missing canvas_spec")?;
+        assert_eq!(spec.nested_relations.len(), 1);
+        assert_eq!(spec.nested_relations[0].relation_name, "orders");
+
+        // Add inline rollup: SUM(orders.freight) as total_freight
+        gui.add_canvas_aggregation(
+            Some("orders".to_string()),
+            "freight".to_string(),
+            AggFunc::Sum,
+            "total_freight".to_string(),
+        );
+
+        let res = gui.canvas_result.as_ref().ok_or("missing canvas_result")?;
+        assert_eq!(res["success"], true);
+        let data = res["result"]["data"].as_array().ok_or("missing data")?;
+        assert_eq!(data.len(), 4); // 4 customers
+
+        // Customer 1: Tokyo Traders has 2 orders and $50.50 freight
+        let cust1 = &data[0];
+        assert_eq!(cust1["company_name"], "Tokyo Traders");
+        assert_eq!(cust1["city"], "Tokyo");
+        assert_eq!(cust1["total_freight"], 50.5);
+
+        let cust1_orders = cust1["orders"].as_array().ok_or("missing orders")?;
+        assert_eq!(cust1_orders.len(), 2);
+        assert_eq!(cust1_orders[0]["status"], "Delivered");
+        assert_eq!(cust1_orders[1]["status"], "Shipped");
+
+        Ok(())
+    }
+
+    #[test]
     fn test_alerts_and_watchdog_gui_integration() -> Result<(), Box<dyn std::error::Error>> {
         use databasecraft_core::notifications::NotificationCategory;
 

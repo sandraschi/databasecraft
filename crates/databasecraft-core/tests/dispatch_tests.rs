@@ -836,6 +836,49 @@ async fn test_canvas_compile_and_query_hierarchy() -> Result<(), Box<dyn std::er
 }
 
 #[tokio::test]
+async fn test_seed_northwind_and_relations() -> Result<(), Box<dyn std::error::Error>> {
+    let store = DatabaseStore::open_in_memory()?;
+    let seed_res = dispatch(
+        Command::SeedDemo {
+            name: "northwind".to_string(),
+        },
+        &store,
+    )
+    .await;
+    assert_eq!(seed_res["success"], true);
+
+    // Test reverse relation on customers -> orders
+    let cust_rel = dispatch(
+        Command::SchemaRelations {
+            table: "customers".to_string(),
+        },
+        &store,
+    )
+    .await;
+    assert_eq!(cust_rel["success"], true);
+    let cust_rev = cust_rel["reverse_relations"]
+        .as_array()
+        .ok_or("missing reverse_relations")?;
+    assert!(cust_rev.iter().any(|r| r["relation_name"] == "orders"));
+
+    // Test reverse relation on orders -> order_items
+    let order_rel = dispatch(
+        Command::SchemaRelations {
+            table: "orders".to_string(),
+        },
+        &store,
+    )
+    .await;
+    assert_eq!(order_rel["success"], true);
+    let order_rev = order_rel["reverse_relations"]
+        .as_array()
+        .ok_or("missing order reverse_relations")?;
+    assert!(order_rev.iter().any(|r| r["relation_name"] == "order_items"));
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_canvas_hostile_input_fence() -> Result<(), Box<dyn std::error::Error>> {
     let store = DatabaseStore::open_in_memory()?;
     use databasecraft_core::canvas::{CanvasColumn, CanvasSpec};

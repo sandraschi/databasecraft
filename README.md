@@ -93,10 +93,13 @@ cargo run -p databasecraft-app -- --control 14113
 **Does today:** 
 - Core/Store/MCP/App crates compiling under strict `#![deny(clippy::unwrap_used)]`.
 - Relational Canvas AST, SQLite JSON query compiler, and relation sprouter.
+- Continuous Spanned Spreadsheet Matrix with multi-tier table ownership headers, 1px hairline borders, and density control (Compact, Standard, Relaxed).
+- Smart cell auto-formatter: currency commas (`$1,850.00`), delivery/order status pill badges, tabular numeric alignment, and monospace dates.
+- Realistic commercial demo datasets: Northwind Traders (`customers -> orders -> order_items`), Ecommerce, Film Production, and Executive KPIs.
 - Generalized Craft Notification Bus with severity levels (`info`, `warning`, `critical`, `disaster`) and ring buffer.
 - Autonomous CTO Watchdog with quiescent table mutation anomaly detection (e.g. `employees`, `roles`).
 - Desktop GUI with 11 integrated tabs: `Table Data`, `✨ Relational Canvas`, `SQL & NLQ Console`, `Schema ERD`, `AI Copilot`, `RAG Vectors`, `Profiler`, `Doctor`, `Domain Constructor`, `Cross-Craft Export`, `🚨 Alerts & Watchdog`.
-- 25 automated tests passing with zero warnings.
+- 27 automated tests passing with zero warnings.
 - MCP stdio framing (`MCP 2024-11-05`) + TCP Plane 2 on control port `14113`.
 
 **Lineage:**  

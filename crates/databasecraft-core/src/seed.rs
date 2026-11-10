@@ -6,6 +6,7 @@ pub enum DemoKind {
     Ecommerce,
     FilmProduction,
     ExecutiveKpi,
+    Northwind,
 }
 
 impl DemoKind {
@@ -14,8 +15,9 @@ impl DemoKind {
             "ecommerce" | "products" | "catalog" => Ok(DemoKind::Ecommerce),
             "film" | "film_production" | "shots" => Ok(DemoKind::FilmProduction),
             "kpi" | "executive" | "metrics" => Ok(DemoKind::ExecutiveKpi),
+            "northwind" | "retail" | "orders" | "commercial" => Ok(DemoKind::Northwind),
             other => Err(DatabaseCraftError::InvalidInput(format!(
-                "unknown demo dataset '{other}'. Valid options: ecommerce, film, kpi"
+                "unknown demo dataset '{other}'. Valid options: ecommerce, film, kpi, northwind"
             ))),
         }
     }
@@ -29,6 +31,7 @@ pub fn seed_demo_dataset(
         DemoKind::Ecommerce => seed_ecommerce(store),
         DemoKind::FilmProduction => seed_film_production(store),
         DemoKind::ExecutiveKpi => seed_executive_kpis(store),
+        DemoKind::Northwind => seed_northwind(store),
     }
 }
 
@@ -121,6 +124,67 @@ fn seed_executive_kpis(store: &DatabaseStore) -> Result<usize, DatabaseCraftErro
             (2, '2026-Q1', 1580000.0, 131666.0, 81.2, 0.9, 5800),
             (3, '2026-Q2', 2050000.0, 170833.0, 83.0, 0.7, 7900),
             (4, '2026-Q3', 2720000.0, 226666.0, 84.8, 0.5, 11200);
+    ";
+    store
+        .execute(ddl)
+        .map_err(|e| DatabaseCraftError::Storage(e.to_string()))
+}
+
+fn seed_northwind(store: &DatabaseStore) -> Result<usize, DatabaseCraftError> {
+    let ddl = "
+        CREATE TABLE IF NOT EXISTS customers (
+            id INTEGER PRIMARY KEY,
+            company_name TEXT NOT NULL,
+            contact_name TEXT NOT NULL,
+            city TEXT NOT NULL,
+            country TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS orders (
+            id INTEGER PRIMARY KEY,
+            customer_id INTEGER NOT NULL REFERENCES customers(id),
+            order_date TEXT NOT NULL,
+            status TEXT NOT NULL,
+            freight REAL NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS order_items (
+            id INTEGER PRIMARY KEY,
+            order_id INTEGER NOT NULL REFERENCES orders(id),
+            product_name TEXT NOT NULL,
+            quantity INTEGER NOT NULL,
+            unit_price REAL NOT NULL,
+            discount REAL NOT NULL
+        );
+
+        INSERT INTO customers (id, company_name, contact_name, city, country) VALUES
+            (1, 'Tokyo Traders', 'Yoshi Nagase', 'Tokyo', 'Japan'),
+            (2, 'Exotic Liquids', 'Charlotte Cooper', 'London', 'UK'),
+            (3, 'Nordic Delights', 'Sven Petersen', 'Stockholm', 'Sweden'),
+            (4, 'Pavlova Ltd', 'Ian Devling', 'Melbourne', 'Australia');
+
+        INSERT INTO orders (id, customer_id, order_date, status, freight) VALUES
+            (1, 1, '2026-10-14', 'Delivered', 32.50),
+            (2, 1, '2026-11-02', 'Shipped', 18.00),
+            (3, 2, '2026-09-28', 'Delivered', 45.00),
+            (4, 2, '2026-11-05', 'Processing', 12.00),
+            (5, 3, '2026-10-20', 'Shipped', 64.00),
+            (6, 3, '2026-11-08', 'Pending', 22.50),
+            (7, 4, '2026-11-01', 'Delivered', 85.00);
+
+        INSERT INTO order_items (id, order_id, product_name, quantity, unit_price, discount) VALUES
+            (1, 1, 'Ikura Ocean Caviar', 4, 31.00, 0.0),
+            (2, 1, 'Mishi Kobe Niku', 2, 97.00, 0.05),
+            (3, 2, 'Longlife Tofu', 10, 10.00, 0.0),
+            (4, 3, 'Chai Herbal Tea', 15, 18.00, 0.1),
+            (5, 3, 'Chang Draft Beer', 24, 19.00, 0.0),
+            (6, 3, 'Aniseed Syrup', 8, 10.00, 0.0),
+            (7, 4, 'Chef Anton Cajun Seasoning', 6, 22.00, 0.0),
+            (8, 5, 'Gorgonzola Telino', 12, 12.50, 0.0),
+            (9, 5, 'Mascarpone Fabioli', 5, 32.00, 0.0),
+            (10, 6, 'Geitost Goat Cheese', 20, 2.50, 0.05),
+            (11, 7, 'Pavlova Meringue', 8, 17.45, 0.0),
+            (12, 7, 'Alice Mutton', 4, 39.00, 0.1);
     ";
     store
         .execute(ddl)
