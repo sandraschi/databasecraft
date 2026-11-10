@@ -248,6 +248,54 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn test_canvas_gui_integration() -> Result<(), Box<dyn std::error::Error>> {
+        use databasecraft_core::canvas::AggFunc;
+
+        let store = Arc::new(DatabaseStore::open_in_memory()?);
+        let rt = Arc::new(tokio::runtime::Runtime::new()?);
+        rt.block_on(dispatch(
+            Command::SeedDemo {
+                name: "ecommerce".to_string(),
+            },
+            &store,
+        ));
+
+        let mut gui = gui::DatabaseCraftGui::new(store.clone(), rt.clone());
+
+        assert_eq!(gui.canvas_root_table.as_deref(), Some("categories"));
+        assert!(gui.canvas_spec.is_some());
+        assert!(gui.canvas_relations.is_some());
+
+        // Sprout products 1:N
+        gui.sprout_relation("products", true);
+        let sprouted_spec = gui.canvas_spec.as_ref().ok_or("missing canvas_spec")?;
+        assert_eq!(sprouted_spec.nested_relations.len(), 1);
+        assert_eq!(sprouted_spec.nested_relations[0].relation_name, "products");
+
+        // Add inline rollup: SUM(products.price) as total_value
+        gui.add_canvas_aggregation(
+            Some("products".to_string()),
+            "price".to_string(),
+            AggFunc::Sum,
+            "total_value".to_string(),
+        );
+
+        let res = gui.canvas_result.as_ref().ok_or("missing canvas_result")?;
+        assert_eq!(res["success"], true);
+        let data = res["result"]["data"].as_array().ok_or("missing data")?;
+        assert_eq!(data.len(), 3);
+
+        // Check Category 1: Audio Hardware has total_value $1148 and 2 products
+        let cat1 = &data[0];
+        assert_eq!(cat1["name"], "Audio Hardware");
+        assert_eq!(cat1["total_value"], 1148.0);
+        let cat1_products = cat1["products"].as_array().ok_or("missing products")?;
+        assert_eq!(cat1_products.len(), 2);
+
+        Ok(())
+    }
+
     #[tokio::test]
     async fn test_control_channel_tcp_loopback() -> Result<(), Box<dyn std::error::Error>> {
         let store = Arc::new(DatabaseStore::open_in_memory()?);

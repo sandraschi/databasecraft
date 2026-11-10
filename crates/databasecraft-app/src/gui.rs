@@ -9,6 +9,9 @@
 #![deny(clippy::unimplemented)]
 #![deny(clippy::todo)]
 
+use databasecraft_core::canvas::{
+    AggFunc, CanvasAggregation, CanvasColumn, CanvasNestedRelation, CanvasSpec, TableRelations,
+};
 use databasecraft_core::{dispatch, models::ExportTarget, Command, APP_VERSION, CONTROL_PORT};
 use databasecraft_store::DatabaseStore;
 use eframe::egui::{self, Color32, Vec2};
@@ -20,6 +23,7 @@ use tokio::runtime::Runtime;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveTab {
     Tables,
+    Canvas,
     Query,
     Schema,
     AiWorkflows,
@@ -79,6 +83,17 @@ pub struct DatabaseCraftGui {
     pub export_target: ExportTarget,
     pub export_preview: Option<Value>,
     pub status_message: String,
+    // Relational Canvas (Ultorg-Style) perspective state
+    pub canvas_root_table: Option<String>,
+    pub canvas_spec: Option<CanvasSpec>,
+    pub canvas_result: Option<Value>,
+    pub canvas_relations: Option<TableRelations>,
+    pub canvas_latency_ms: Option<u128>,
+    pub canvas_field_selector_open: bool,
+    pub canvas_show_sql_drawer: bool,
+    pub canvas_rollup_col: String,
+    pub canvas_rollup_func: AggFunc,
+    pub canvas_rollup_alias: String,
 }
 
 impl DatabaseCraftGui {
@@ -136,10 +151,21 @@ impl DatabaseCraftGui {
             status_message: format!(
                 "DatabaseCraft v{APP_VERSION} initialized on Port {CONTROL_PORT} [Ready]"
             ),
+            canvas_root_table: first_table.clone(),
+            canvas_spec: None,
+            canvas_result: None,
+            canvas_relations: None,
+            canvas_latency_ms: None,
+            canvas_field_selector_open: false,
+            canvas_show_sql_drawer: false,
+            canvas_rollup_col: "price".to_string(),
+            canvas_rollup_func: AggFunc::Sum,
+            canvas_rollup_alias: "total_value".to_string(),
         };
 
-        if let Some(t) = first_table {
-            app.load_table_data(&t);
+        if let Some(ref t) = first_table {
+            app.load_table_data(t);
+            app.init_canvas_for_table(t);
         }
 
         app
@@ -364,6 +390,185 @@ impl DatabaseCraftGui {
         self.run_diagnostics();
     }
 
+    pub fn init_canvas_for_table(&mut self, table_name: &str) {
+        self.canvas_root_table = Some(table_name.to_string());
+
+        let schema_res = self.runtime.block_on(dispatch(
+            Command::SchemaInspect {
+                table: Some(table_name.to_string()),
+            },
+            &self.store,
+        ));
+
+        let mut cols = Vec::new();
+        if let Some(tbl) = schema_res.get("table") {
+            if let Some(arr) = tbl.get("columns").and_then(|v| v.as_array()) {
+                for c in arr {
+                    if let Some(name) = c.get("name").and_then(|v| v.as_str()) {
+                        cols.push(CanvasColumn::new(name));
+                    }
+                }
+            }
+        }
+        if cols.is_empty() {
+            cols.push(CanvasColumn::new("id"));
+        }
+
+        let rel_res = self.runtime.block_on(dispatch(
+            Command::SchemaRelations {
+                table: table_name.to_string(),
+            },
+            &self.store,
+        ));
+
+        let mut forward_relations = Vec::new();
+        let mut reverse_relations = Vec::new();
+        if rel_res["success"] == true {
+            if let Some(arr) = rel_res["forward_relations"].as_array() {
+                for r in arr {
+                    if let Ok(sr) = serde_json::from_value::<databasecraft_core::canvas::SchemaRelation>(r.clone()) {
+                        forward_relations.push(sr);
+                    }
+                }
+            }
+            if let Some(arr) = rel_res["reverse_relations"].as_array() {
+                for r in arr {
+                    if let Ok(sr) = serde_json::from_value::<databasecraft_core::canvas::SchemaRelation>(r.clone()) {
+                        reverse_relations.push(sr);
+                    }
+                }
+            }
+        }
+        self.canvas_relations = Some(TableRelations {
+            table: table_name.to_string(),
+            forward_relations,
+            reverse_relations,
+        });
+
+        let spec = CanvasSpec {
+            root_table: table_name.to_string(),
+            columns: cols,
+            nested_relations: Vec::new(),
+            aggregations: Vec::new(),
+            filters: Vec::new(),
+            sort: Vec::new(),
+            limit: Some(50),
+            offset: None,
+        };
+
+        self.canvas_spec = Some(spec);
+        self.run_canvas_query();
+    }
+
+    pub fn run_canvas_query(&mut self) {
+        if let Some(ref spec) = self.canvas_spec.clone() {
+            let start = Instant::now();
+            let res = self.runtime.block_on(dispatch(
+                Command::CanvasQuery {
+                    spec: spec.clone(),
+                },
+                &self.store,
+            ));
+            self.canvas_latency_ms = Some(start.elapsed().as_millis());
+            self.canvas_result = Some(res);
+        }
+    }
+
+    pub fn sprout_relation(&mut self, rel_name: &str, is_reverse: bool) {
+        if let (Some(ref mut spec), Some(ref relations)) =
+            (&mut self.canvas_spec, &self.canvas_relations)
+        {
+            let candidate = if is_reverse {
+                relations
+                    .reverse_relations
+                    .iter()
+                    .find(|r| r.relation_name.eq_ignore_ascii_case(rel_name))
+            } else {
+                relations
+                    .forward_relations
+                    .iter()
+                    .find(|r| r.relation_name.eq_ignore_ascii_case(rel_name))
+            };
+
+            if let Some(r) = candidate {
+                let schema_res = self.runtime.block_on(dispatch(
+                    Command::SchemaInspect {
+                        table: Some(r.table.clone()),
+                    },
+                    &self.store,
+                ));
+                let mut child_cols = Vec::new();
+                if let Some(tbl) = schema_res.get("table") {
+                    if let Some(arr) = tbl.get("columns").and_then(|v| v.as_array()) {
+                        for c in arr {
+                            if let Some(name) = c.get("name").and_then(|v| v.as_str()) {
+                                child_cols.push(CanvasColumn::new(name));
+                            }
+                        }
+                    }
+                }
+                if child_cols.is_empty() {
+                    child_cols.push(CanvasColumn::new("id"));
+                }
+
+                let nested = CanvasNestedRelation {
+                    relation_name: r.relation_name.clone(),
+                    target_table: r.table.clone(),
+                    parent_key_col: r.source_col.clone(),
+                    foreign_key_col: r.target_col.clone(),
+                    is_reverse,
+                    columns: child_cols,
+                    nested_relations: Vec::new(),
+                    aggregations: Vec::new(),
+                    filters: Vec::new(),
+                    limit: None,
+                };
+
+                spec.nested_relations.retain(|existing| {
+                    !existing.relation_name.eq_ignore_ascii_case(&r.relation_name)
+                });
+                spec.nested_relations.push(nested);
+            }
+        }
+        self.run_canvas_query();
+    }
+
+    pub fn remove_sprouted_relation(&mut self, rel_name: &str) {
+        if let Some(ref mut spec) = self.canvas_spec {
+            spec.nested_relations
+                .retain(|r| !r.relation_name.eq_ignore_ascii_case(rel_name));
+        }
+        self.run_canvas_query();
+    }
+
+    pub fn add_canvas_aggregation(
+        &mut self,
+        target_rel: Option<String>,
+        col: String,
+        func: AggFunc,
+        alias: String,
+    ) {
+        if let Some(ref mut spec) = self.canvas_spec {
+            spec.aggregations
+                .retain(|a| !a.alias.eq_ignore_ascii_case(&alias));
+            spec.aggregations.push(CanvasAggregation {
+                target_relation: target_rel,
+                target_col: col,
+                func,
+                alias,
+            });
+        }
+        self.run_canvas_query();
+    }
+
+    pub fn remove_canvas_aggregation(&mut self, alias: &str) {
+        if let Some(ref mut spec) = self.canvas_spec {
+            spec.aggregations
+                .retain(|a| !a.alias.eq_ignore_ascii_case(alias));
+        }
+        self.run_canvas_query();
+    }
+
     pub fn run_rag_search(&mut self) {
         let text = self.rag_text.clone();
         let vec_table = self.tables.iter().find(|t| t.ends_with("_vec")).cloned();
@@ -537,6 +742,18 @@ impl eframe::App for DatabaseCraftGui {
                 }
                 if nav_button(
                     ui,
+                    self.active_tab == ActiveTab::Canvas,
+                    "✨ Relational Canvas",
+                ) {
+                    self.active_tab = ActiveTab::Canvas;
+                    if self.canvas_spec.is_none() {
+                        if let Some(ref t) = self.selected_table.clone() {
+                            self.init_canvas_for_table(t);
+                        }
+                    }
+                }
+                if nav_button(
+                    ui,
                     self.active_tab == ActiveTab::Query,
                     "⚡ SQL & NLQ Console",
                 ) {
@@ -623,6 +840,9 @@ impl eframe::App for DatabaseCraftGui {
                 if let Some(selected) = table_to_select {
                     self.selected_table = Some(selected.clone());
                     self.load_table_data(&selected);
+                    if self.active_tab == ActiveTab::Canvas {
+                        self.init_canvas_for_table(&selected);
+                    }
                 }
             });
 
@@ -634,6 +854,20 @@ impl eframe::App for DatabaseCraftGui {
                         "Table: {}",
                         self.selected_table.as_deref().unwrap_or("None")
                     ));
+                    ui.add_space(8.0);
+                    if ui
+                        .button(
+                            egui::RichText::new("✨ Open in Relational Canvas")
+                                .color(emerald_bright)
+                                .strong(),
+                        )
+                        .clicked()
+                    {
+                        if let Some(ref t) = self.selected_table.clone() {
+                            self.init_canvas_for_table(t);
+                            self.active_tab = ActiveTab::Canvas;
+                        }
+                    }
                     ui.add_space(16.0);
                     ui.label("Search filter:");
                     ui.text_edit_singleline(&mut self.filter_text);
@@ -699,6 +933,523 @@ impl eframe::App for DatabaseCraftGui {
                     }
                 } else {
                     ui.label("Select a table from the left navigation rail or click Seed above to populate data.");
+                }
+            }
+            ActiveTab::Canvas => {
+                let current_table = self
+                    .canvas_root_table
+                    .clone()
+                    .or_else(|| self.selected_table.clone())
+                    .unwrap_or_else(|| "None".to_string());
+
+                // Top control bar
+                ui.horizontal(|ui| {
+                    ui.colored_label(emerald_bright, "✨ Relational Perspective Canvas");
+                    ui.separator();
+                    ui.label("Root Table:");
+                    ui.colored_label(Color32::WHITE, egui::RichText::new(&current_table).strong());
+
+                    ui.add_space(8.0);
+                    ui.label("Filter:");
+                    ui.add(egui::TextEdit::singleline(&mut self.filter_text).desired_width(140.0));
+
+                    if ui.button("🎛 Fields & Joins").clicked() {
+                        self.canvas_field_selector_open = !self.canvas_field_selector_open;
+                    }
+
+                    if ui
+                        .button(if self.canvas_show_sql_drawer {
+                            "⚡ Hide SQL"
+                        } else {
+                            "⚡ View SQL"
+                        })
+                        .clicked()
+                    {
+                        self.canvas_show_sql_drawer = !self.canvas_show_sql_drawer;
+                    }
+
+                    if ui.button("⟳ Reload").clicked() {
+                        self.run_canvas_query();
+                    }
+                });
+
+                // Sprout bar: Forward and reverse relationships discovered
+                let mut sprout_action: Option<(String, bool)> = None;
+                let mut remove_sprout_action: Option<String> = None;
+                let mut remove_agg_alias: Option<String> = None;
+
+                if let Some(ref rels) = self.canvas_relations.clone() {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.weak("Relations:");
+
+                        // Reverse relations (1:N)
+                        for r in &rels.reverse_relations {
+                            let is_sprouted = self.canvas_spec.as_ref().is_some_and(|s| {
+                                s.nested_relations
+                                    .iter()
+                                    .any(|nr| nr.relation_name.eq_ignore_ascii_case(&r.relation_name))
+                            });
+
+                            if is_sprouted {
+                                if ui
+                                    .button(
+                                        egui::RichText::new(format!("✓ {} (1:N) ✖", r.relation_name))
+                                            .color(sky_blue)
+                                            .strong(),
+                                    )
+                                    .clicked()
+                                {
+                                    remove_sprout_action = Some(r.relation_name.clone());
+                                }
+                            } else if ui.button(format!("+ ⤹ Sprout: {} (1:N)", r.relation_name)).clicked() {
+                                sprout_action = Some((r.relation_name.clone(), true));
+                            }
+                        }
+
+                        // Forward relations (N:1)
+                        for r in &rels.forward_relations {
+                            let is_sprouted = self.canvas_spec.as_ref().is_some_and(|s| {
+                                s.nested_relations
+                                    .iter()
+                                    .any(|nr| nr.relation_name.eq_ignore_ascii_case(&r.relation_name))
+                            });
+
+                            if is_sprouted {
+                                if ui
+                                    .button(
+                                        egui::RichText::new(format!("✓ {} (N:1) ✖", r.relation_name))
+                                            .color(sky_blue)
+                                            .strong(),
+                                    )
+                                    .clicked()
+                                {
+                                    remove_sprout_action = Some(r.relation_name.clone());
+                                }
+                            } else if ui.button(format!("+ 🔗 Sprout: {} (N:1)", r.relation_name)).clicked() {
+                                sprout_action = Some((r.relation_name.clone(), false));
+                            }
+                        }
+
+                        // Active rollups
+                        if let Some(ref spec) = self.canvas_spec {
+                            for agg in &spec.aggregations {
+                                if ui
+                                    .button(
+                                        egui::RichText::new(format!(
+                                            "∑ {}: {:?}({}) ✖",
+                                            agg.alias, agg.func, agg.target_col
+                                        ))
+                                        .color(amber),
+                                    )
+                                    .clicked()
+                                {
+                                    remove_agg_alias = Some(agg.alias.clone());
+                                }
+                            }
+                        }
+                    });
+                }
+
+                if let Some((rel, is_rev)) = sprout_action {
+                    self.sprout_relation(&rel, is_rev);
+                }
+                if let Some(rel) = remove_sprout_action {
+                    self.remove_sprouted_relation(&rel);
+                }
+                if let Some(alias) = remove_agg_alias {
+                    self.remove_canvas_aggregation(&alias);
+                }
+                ui.separator();
+
+                // SQL Drawer
+                if self.canvas_show_sql_drawer {
+                    if let Some(ref res) = self.canvas_result {
+                        if let Some(sql) = res["result"]["compiled_sql"].as_str() {
+                            egui::Frame::group(ui.style())
+                                .fill(Color32::from_rgb(22, 24, 29))
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.colored_label(
+                                            amber,
+                                            "Compiled SQLite JSON Aggregation Query:",
+                                        );
+                                        if let Some(lat) = self.canvas_latency_ms {
+                                            ui.colored_label(
+                                                muted_gray,
+                                                format!("• Execution Latency: {lat}ms"),
+                                            );
+                                        }
+                                    });
+                                    egui::ScrollArea::vertical().max_height(100.0).show(ui, |ui| {
+                                        ui.add(
+                                            egui::TextEdit::multiline(&mut sql.to_string())
+                                                .font(egui::TextStyle::Monospace)
+                                                .desired_width(f32::INFINITY),
+                                        );
+                                    });
+                                });
+                            ui.separator();
+                        }
+                    }
+                }
+
+                // Render Canvas Data Cards
+                if let Some(ref res) = self.canvas_result {
+                    if res["success"] == true {
+                        if let Some(data) = res["result"]["data"].as_array() {
+                            let filter_lower = self.filter_text.trim().to_lowercase();
+                            let filtered_records: Vec<&Value> = if filter_lower.is_empty() {
+                                data.iter().collect()
+                            } else {
+                                data.iter()
+                                    .filter(|rec| {
+                                        rec.to_string().to_lowercase().contains(&filter_lower)
+                                    })
+                                    .collect()
+                            };
+
+                            let sprouted_count = self
+                                .canvas_spec
+                                .as_ref()
+                                .map(|s| s.nested_relations.len())
+                                .unwrap_or(0);
+                            let rollup_count = self
+                                .canvas_spec
+                                .as_ref()
+                                .map(|s| s.aggregations.len())
+                                .unwrap_or(0);
+
+                            ui.horizontal(|ui| {
+                                ui.colored_label(
+                                    emerald_bright,
+                                    format!("Perspective: {} records", filtered_records.len()),
+                                );
+                                ui.colored_label(
+                                    sky_blue,
+                                    format!("• {sprouted_count} sprouted subqueries"),
+                                );
+                                ui.colored_label(amber, format!("• {rollup_count} rollups"));
+                                if let Some(lat) = self.canvas_latency_ms {
+                                    ui.colored_label(muted_gray, format!("• {lat}ms"));
+                                }
+                            });
+
+                            egui::ScrollArea::both().show(ui, |ui| {
+                                for (row_idx, record) in filtered_records.iter().enumerate() {
+                                    if let Some(obj) = record.as_object() {
+                                        egui::Frame::group(ui.style())
+                                            .fill(if row_idx % 2 == 0 {
+                                                Color32::from_rgb(22, 24, 28)
+                                            } else {
+                                                Color32::from_rgb(28, 30, 35)
+                                            })
+                                            .stroke(egui::Stroke::new(
+                                                1.0,
+                                                Color32::from_rgb(45, 48, 56),
+                                            ))
+                                            .inner_margin(8.0)
+                                            .show(ui, |ui| {
+                                                // Parent Row Banner
+                                                ui.horizontal_wrapped(|ui| {
+                                                    ui.colored_label(
+                                                        emerald_bright,
+                                                        format!("#{}", row_idx + 1),
+                                                    );
+
+                                                    // Primitive attributes
+                                                    for (key, val) in obj {
+                                                        if val.is_array() {
+                                                            continue;
+                                                        }
+                                                        let is_rollup = self
+                                                            .canvas_spec
+                                                            .as_ref()
+                                                            .is_some_and(|s| {
+                                                                s.aggregations
+                                                                    .iter()
+                                                                    .any(|a| a.alias == *key)
+                                                            });
+                                                        if is_rollup {
+                                                            continue;
+                                                        }
+                                                        ui.label(format!("{key}:"));
+                                                        if let Some(s) = val.as_str() {
+                                                            ui.colored_label(
+                                                                Color32::WHITE,
+                                                                egui::RichText::new(s).strong(),
+                                                            );
+                                                        } else if let Some(n) = val.as_f64() {
+                                                            ui.colored_label(sky_blue, format!("{n}"));
+                                                        } else {
+                                                            ui.label(val.to_string());
+                                                        }
+                                                        ui.add_space(4.0);
+                                                    }
+
+                                                    // Rollup badges
+                                                    if let Some(ref spec) = self.canvas_spec {
+                                                        for agg in &spec.aggregations {
+                                                            if let Some(val) = obj.get(&agg.alias) {
+                                                                let formatted = if let Some(n) =
+                                                                    val.as_f64()
+                                                                {
+                                                                    if agg.func == AggFunc::Sum
+                                                                        && (agg
+                                                                            .target_col
+                                                                            .contains("price")
+                                                                            || agg
+                                                                                .target_col
+                                                                                .contains("total"))
+                                                                    {
+                                                                        format!("${:.2}", n)
+                                                                    } else {
+                                                                        format!("{n}")
+                                                                    }
+                                                                } else {
+                                                                    val.to_string()
+                                                                };
+                                                                ui.colored_label(
+                                                                    amber,
+                                                                    egui::RichText::new(format!(
+                                                                        "∑ {}: {}",
+                                                                        agg.alias, formatted
+                                                                    ))
+                                                                    .strong(),
+                                                                );
+                                                                ui.add_space(4.0);
+                                                            }
+                                                        }
+                                                    }
+                                                });
+
+                                                // Sprouted Subquery Tables
+                                                if let Some(ref spec) = self.canvas_spec {
+                                                    for rel in &spec.nested_relations {
+                                                        ui.add_space(4.0);
+                                                        ui.horizontal(|ui| {
+                                                            ui.colored_label(
+                                                                sky_blue,
+                                                                format!(
+                                                                    "  ↳ Subquery: {} (target: {})",
+                                                                    rel.relation_name,
+                                                                    rel.target_table
+                                                                ),
+                                                            );
+                                                        });
+
+                                                        if let Some(sub_val) =
+                                                            obj.get(&rel.relation_name)
+                                                        {
+                                                            if let Some(sub_rows) =
+                                                                sub_val.as_array()
+                                                            {
+                                                                if sub_rows.is_empty() {
+                                                                    ui.colored_label(
+                                                                        muted_gray,
+                                                                        "      (No related records)",
+                                                                    );
+                                                                } else {
+                                                                    egui::Frame::group(ui.style())
+                                                                        .fill(Color32::from_rgb(
+                                                                            18, 19, 23,
+                                                                        ))
+                                                                        .inner_margin(6.0)
+                                                                        .show(ui, |ui| {
+                                                                            egui::Grid::new(
+                                                                                format!(
+                                                                                    "nested_grid_{}_{}",
+                                                                                    row_idx,
+                                                                                    rel.relation_name
+                                                                                ),
+                                                                            )
+                                                                            .striped(true)
+                                                                            .spacing(Vec2::new(
+                                                                                12.0, 4.0,
+                                                                            ))
+                                                                            .show(ui, |ui| {
+                                                                                ui.weak("  ");
+                                                                                for col in &rel.columns
+                                                                                {
+                                                                                    if col.visible {
+                                                                                        ui.colored_label(
+                                                                                            sky_blue,
+                                                                                            col.alias
+                                                                                                .as_deref()
+                                                                                                .unwrap_or(
+                                                                                                    &col.name,
+                                                                                                ),
+                                                                                        );
+                                                                                    }
+                                                                                }
+                                                                                ui.end_row();
+
+                                                                                for (c_idx, c_row) in
+                                                                                    sub_rows
+                                                                                        .iter()
+                                                                                        .enumerate()
+                                                                                {
+                                                                                    ui.weak(format!(
+                                                                                        "    {}.",
+                                                                                        c_idx + 1
+                                                                                    ));
+                                                                                    if let Some(c_obj) =
+                                                                                        c_row.as_object(
+                                                                                        )
+                                                                                    {
+                                                                                        for col in
+                                                                                            &rel.columns
+                                                                                        {
+                                                                                            if !col.visible
+                                                                                            {
+                                                                                                continue;
+                                                                                            }
+                                                                                            let key =
+                                                                                                col.alias
+                                                                                                    .as_deref()
+                                                                                                    .unwrap_or(
+                                                                                                        &col.name,
+                                                                                                    );
+                                                                                            let val =
+                                                                                                c_obj
+                                                                                                    .get(
+                                                                                                        key,
+                                                                                                    )
+                                                                                                    .unwrap_or(
+                                                                                                        &Value::Null,
+                                                                                                    );
+                                                                                            if val
+                                                                                                .is_null()
+                                                                                            {
+                                                                                                ui.colored_label(muted_gray, "—");
+                                                                                            } else if let Some(n) = val.as_f64() {
+                                                                                                if col.name.contains("price") || col.name.contains("cost") {
+                                                                                                    ui.colored_label(emerald_bright, format!("${:.2}", n));
+                                                                                                } else {
+                                                                                                    ui.colored_label(sky_blue, format!("{n}"));
+                                                                                                }
+                                                                                            } else if let Some(s) = val.as_str() {
+                                                                                                ui.label(s);
+                                                                                            } else {
+                                                                                                ui.label(val.to_string());
+                                                                                            }
+                                                                                        }
+                                                                                        ui.end_row();
+                                                                                    }
+                                                                                }
+                                                                            });
+                                                                        });
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            });
+                                        ui.add_space(4.0);
+                                    }
+                                }
+                            });
+                        }
+                    } else {
+                        ui.colored_label(
+                            Color32::RED,
+                            format!(
+                                "Canvas Error: {}",
+                                res["error"].as_str().unwrap_or("Unknown")
+                            ),
+                        );
+                    }
+                } else {
+                    ui.label("Select a table from the left navigation rail to initialize the Relational Canvas.");
+                }
+
+                // Field Selector Modal Palette Window
+                if self.canvas_field_selector_open {
+                    let mut is_open = true;
+                    egui::Window::new("🎛 Fields & Joins Palette (Ultorg-Style)")
+                        .open(&mut is_open)
+                        .default_width(380.0)
+                        .show(ui.ctx(), |ui| {
+                            ui.heading("Field Selector");
+                            ui.separator();
+
+                            ui.strong("Root Table Attributes:");
+                            if let Some(ref mut spec) = self.canvas_spec {
+                                for col in &mut spec.columns {
+                                    ui.checkbox(&mut col.visible, &col.name);
+                                }
+                            }
+
+                            ui.separator();
+                            ui.strong("Add Inline Rollup Metric:");
+                            ui.horizontal(|ui| {
+                                ui.label("Target Col:");
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.canvas_rollup_col)
+                                        .desired_width(70.0),
+                                );
+
+                                ui.label("Func:");
+                                ui.selectable_value(
+                                    &mut self.canvas_rollup_func,
+                                    AggFunc::Sum,
+                                    "SUM",
+                                );
+                                ui.selectable_value(
+                                    &mut self.canvas_rollup_func,
+                                    AggFunc::Count,
+                                    "COUNT",
+                                );
+                                ui.selectable_value(
+                                    &mut self.canvas_rollup_func,
+                                    AggFunc::Avg,
+                                    "AVG",
+                                );
+                                ui.selectable_value(
+                                    &mut self.canvas_rollup_func,
+                                    AggFunc::Min,
+                                    "MIN",
+                                );
+                                ui.selectable_value(
+                                    &mut self.canvas_rollup_func,
+                                    AggFunc::Max,
+                                    "MAX",
+                                );
+
+                                ui.label("Alias:");
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.canvas_rollup_alias)
+                                        .desired_width(80.0),
+                                );
+                            });
+
+                            let sprout_options: Vec<String> = self
+                                .canvas_spec
+                                .as_ref()
+                                .map(|s| {
+                                    s.nested_relations
+                                        .iter()
+                                        .map(|nr| nr.relation_name.clone())
+                                        .collect()
+                                })
+                                .unwrap_or_default();
+
+                            let target_relation: Option<String> = sprout_options.first().cloned();
+
+                            if ui.button("➕ Add Rollup").clicked() {
+                                let col = self.canvas_rollup_col.clone();
+                                let func = self.canvas_rollup_func;
+                                let alias = self.canvas_rollup_alias.clone();
+                                self.add_canvas_aggregation(target_relation, col, func, alias);
+                            }
+
+                            ui.add_space(8.0);
+                            if ui.button("Close Palette").clicked() {
+                                self.canvas_field_selector_open = false;
+                            }
+                        });
+                    if !is_open {
+                        self.canvas_field_selector_open = false;
+                    }
                 }
             }
             ActiveTab::Query => {
