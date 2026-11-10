@@ -242,6 +242,20 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// List operational health notifications, disk space warnings, and quiescence anomalies
+    Notifications {
+        #[arg(long)]
+        unack: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Run CTO watchdog evaluation across database for quiescence churn and integrity anomalies
+    Watchdog {
+        #[arg(long)]
+        db: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
     /// List all registered commands in the Craft command bus (id, label, signature)
     #[command(name = "commands")]
     Registry {
@@ -867,6 +881,36 @@ fn main() {
                 Err(e) => eprintln!("Failed to parse CanvasSpec JSON: {e}"),
             }
         }
+        Commands::Notifications { unack, json } => {
+            let notifs = databasecraft_core::notifications::global_notification_bus().list(None, unack);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&notifs).unwrap_or_else(|_| "[]".to_string()));
+            } else {
+                println!("Active Notifications & Alerts ({} total):", notifs.len());
+                for n in notifs {
+                    let status = if n.acknowledged { "[ACK]" } else { "[UNACK]" };
+                    println!("  {:8} {:7} {} - {}", format!("[{:?}]", n.severity), status, n.title, n.message);
+                }
+            }
+        }
+        Commands::Watchdog { db, json } => {
+            let store = open_store(db.as_deref());
+            let res = rt.block_on(dispatch(Command::WatchdogCheck, &store));
+            if json {
+                println!("{res}");
+            } else if res["success"] == true {
+                println!("CTO Watchdog Anomaly Evaluation:");
+                println!("  New alerts emitted: {}", res["new_alerts_emitted"]);
+                println!("  Total unacknowledged: {}", res["total_unacknowledged"]);
+                if let Some(alerts) = res["alerts"].as_array() {
+                    for a in alerts {
+                        println!("  - [{}] {} ({})", a["severity"], a["title"], a["message"]);
+                    }
+                }
+            } else {
+                eprintln!("Watchdog Error: {}", res["error"]);
+            }
+        }
         Commands::Registry { json } => {
             let registry = command_registry();
             if json {
@@ -1334,6 +1378,36 @@ pub fn tools_list() -> Value {
                 },
                 "required": ["table"]
             }
+        },
+        {
+            "name": "db_notifications_list",
+            "description": "List operational health notifications, disk space warnings, and quiescence anomalies",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "severity": { "type": "string", "description": "Optional minimum severity: info, warning, critical, disaster" },
+                    "unacknowledged_only": { "type": "boolean", "description": "Whether to return only unacknowledged alerts (default true)" }
+                }
+            }
+        },
+        {
+            "name": "db_notification_ack",
+            "description": "Acknowledge an operational alert or notification by ID",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string", "description": "Notification ID to acknowledge" }
+                },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "db_watchdog_check",
+            "description": "Run CTO watchdog anomaly evaluation across database (evaluates quiescence violations, integrity, disk)",
+            "inputSchema": {
+                "type": "object",
+                "properties": {}
+            }
         }
     ])
 }
@@ -1549,6 +1623,25 @@ pub fn call_tool(rt: &Runtime, store: &DatabaseStore, name: &str, args: &Value) 
         "db_schema_relations" => {
             let table = args["table"].as_str().unwrap_or("").to_string();
             rt.block_on(dispatch(Command::SchemaRelations { table }, store))
+        }
+        "db_notifications_list" => {
+            let sev_str = args["severity"].as_str();
+            let sev = match sev_str {
+                Some("info") => Some(databasecraft_core::notifications::NotificationSeverity::Info),
+                Some("warning") => Some(databasecraft_core::notifications::NotificationSeverity::Warning),
+                Some("critical") => Some(databasecraft_core::notifications::NotificationSeverity::Critical),
+                Some("disaster") => Some(databasecraft_core::notifications::NotificationSeverity::Disaster),
+                _ => None,
+            };
+            let unack = args.get("unacknowledged_only").and_then(|v| v.as_bool()).or(Some(true));
+            rt.block_on(dispatch(Command::NotificationsList { severity: sev, unacknowledged_only: unack }, store))
+        }
+        "db_notification_ack" => {
+            let id = args["id"].as_str().unwrap_or("").to_string();
+            rt.block_on(dispatch(Command::NotificationAck { id }, store))
+        }
+        "db_watchdog_check" => {
+            rt.block_on(dispatch(Command::WatchdogCheck, store))
         }
         unknown => json!({ "success": false, "error": format!("Unknown tool '{unknown}'") }),
     }

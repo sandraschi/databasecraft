@@ -16,6 +16,7 @@ pub mod canvas;
 pub mod error;
 pub mod export;
 pub mod models;
+pub mod notifications;
 pub mod seed;
 
 use databasecraft_store::DatabaseStore;
@@ -64,6 +65,10 @@ pub const CMD_DB_BLUEPRINTS: &str = "db.blueprints";
 pub const CMD_CANVAS_QUERY: &str = "canvas.query";
 pub const CMD_CANVAS_COMPILE: &str = "canvas.compile_sql";
 pub const CMD_SCHEMA_RELATIONS: &str = "db.schema_relations";
+pub const CMD_NOTIFICATIONS_LIST: &str = "notifications.list";
+pub const CMD_NOTIFICATION_ACK: &str = "notifications.ack";
+pub const CMD_WATCHDOG_CHECK: &str = "watchdog.check";
+pub const CMD_WATCHDOG_RULES: &str = "watchdog.rules";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "command", content = "params")]
@@ -191,6 +196,18 @@ pub enum Command {
     SchemaRelations {
         table: String,
     },
+    NotificationsList {
+        severity: Option<notifications::NotificationSeverity>,
+        unacknowledged_only: Option<bool>,
+    },
+    NotificationAck {
+        id: String,
+    },
+    WatchdogCheck,
+    WatchdogRules,
+    WatchdogRecordMutation {
+        table: String,
+    },
 }
 
 /// The Universal Command Bus: dispatches any Command variant into the database store.
@@ -286,6 +303,7 @@ fn execute_dispatch(cmd: Command, store: &DatabaseStore) -> Result<Value, Databa
                 val_placeholders.join(", ")
             );
             store.execute(&sql)?;
+            notifications::global_notification_bus().record_mutation(&table);
 
             // Retrieve last insert id
             let id_qr = store.query("SELECT last_insert_rowid() AS id;")?;
@@ -334,6 +352,7 @@ fn execute_dispatch(cmd: Command, store: &DatabaseStore) -> Result<Value, Databa
                 id
             );
             let affected = store.execute(&sql)?;
+            notifications::global_notification_bus().record_mutation(&table);
 
             Ok(json!({
                 "success": true,
@@ -346,6 +365,7 @@ fn execute_dispatch(cmd: Command, store: &DatabaseStore) -> Result<Value, Databa
             validate_identifier(&table)?;
             let sql = format!("DELETE FROM \"{}\" WHERE id = {};", table, id);
             let affected = store.execute(&sql)?;
+            notifications::global_notification_bus().record_mutation(&table);
             Ok(json!({
                 "success": true,
                 "table": table,
@@ -740,6 +760,52 @@ fn execute_dispatch(cmd: Command, store: &DatabaseStore) -> Result<Value, Databa
                 "reverse_relations": relations.reverse_relations,
             }))
         }
+        Command::NotificationsList {
+            severity,
+            unacknowledged_only,
+        } => {
+            let unack = unacknowledged_only.unwrap_or(false);
+            let notifs = notifications::global_notification_bus().list(severity, unack);
+            Ok(json!({
+                "success": true,
+                "count": notifs.len(),
+                "notifications": notifs,
+            }))
+        }
+        Command::NotificationAck { id } => {
+            let found = notifications::global_notification_bus().acknowledge(&id);
+            Ok(json!({
+                "success": true,
+                "acknowledged": found,
+                "id": id,
+            }))
+        }
+        Command::WatchdogCheck => {
+            let alerts = notifications::global_notification_bus().evaluate_watchdog(store)?;
+            let unack_count =
+                notifications::global_notification_bus().unacknowledged_alert_count();
+            Ok(json!({
+                "success": true,
+                "new_alerts_emitted": alerts.len(),
+                "total_unacknowledged": unack_count,
+                "alerts": alerts,
+            }))
+        }
+        Command::WatchdogRules => {
+            let conf = notifications::global_notification_bus().get_config();
+            Ok(json!({
+                "success": true,
+                "config": conf,
+            }))
+        }
+        Command::WatchdogRecordMutation { table } => {
+            validate_identifier(&table)?;
+            notifications::global_notification_bus().record_mutation(&table);
+            Ok(json!({
+                "success": true,
+                "table": table,
+            }))
+        }
     }
 }
 
@@ -946,6 +1012,30 @@ pub fn command_registry() -> Vec<CommandDescriptor> {
             label: "Discover Schema Relations".to_string(),
             description: "Inspect forward (N:1) and reverse (1:N) foreign-key links for a table for perspective sprouting".to_string(),
             params: json!({ "table": "string" }),
+        },
+        CommandDescriptor {
+            id: CMD_NOTIFICATIONS_LIST.to_string(),
+            label: "List Notifications & Alerts".to_string(),
+            description: "Query operational health notifications, anomalies, and disk alerts".to_string(),
+            params: json!({ "severity": "string (optional)", "unacknowledged_only": "boolean (optional)" }),
+        },
+        CommandDescriptor {
+            id: CMD_NOTIFICATION_ACK.to_string(),
+            label: "Acknowledge Notification".to_string(),
+            description: "Mark an operational alert as acknowledged by its unique ID".to_string(),
+            params: json!({ "id": "string" }),
+        },
+        CommandDescriptor {
+            id: CMD_WATCHDOG_CHECK.to_string(),
+            label: "Run Watchdog Anomaly Evaluation".to_string(),
+            description: "Evaluate quiescence violation rates, integrity health, and disk thresholds across database".to_string(),
+            params: json!({}),
+        },
+        CommandDescriptor {
+            id: CMD_WATCHDOG_RULES.to_string(),
+            label: "Get Watchdog Rules & Config".to_string(),
+            description: "Inspect quiescent table watchlist and operational alerting thresholds".to_string(),
+            params: json!({}),
         },
     ]
 }

@@ -239,7 +239,7 @@ async fn test_hybrid_rag_search() -> Result<(), Box<dyn std::error::Error>> {
 #[tokio::test]
 async fn test_command_registry_and_describe() -> Result<(), Box<dyn std::error::Error>> {
     let registry = databasecraft_core::command_registry();
-    assert_eq!(registry.len(), 32);
+    assert_eq!(registry.len(), 36);
 
     for cmd in &registry {
         assert!(!cmd.id.is_empty());
@@ -855,5 +855,110 @@ async fn test_canvas_hostile_input_fence() -> Result<(), Box<dyn std::error::Err
     let res = dispatch(Command::CanvasQuery { spec: bad_spec }, &store).await;
     assert_eq!(res["success"], false);
     assert!(res["error"].as_str().unwrap_or("").contains("illegal characters"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_notification_bus_lifecycle() -> Result<(), Box<dyn std::error::Error>> {
+    let store = DatabaseStore::open_in_memory()?;
+    use databasecraft_core::notifications::{
+        global_notification_bus, CraftNotification, NotificationCategory, NotificationSeverity,
+    };
+
+    let test_alert = CraftNotification {
+        id: "alert-disk-001".to_string(),
+        timestamp: "2026-11-10T11:00:00Z".to_string(),
+        app: "databasecraft".to_string(),
+        severity: NotificationSeverity::Warning,
+        category: NotificationCategory::DiskStarvation,
+        title: "Disk Space Threshold Warning".to_string(),
+        message: "Database storage partition has 480MB remaining".to_string(),
+        source_entity: Some("disk:c:/".to_string()),
+        metrics: serde_json::json!({ "free_mb": 480, "threshold_mb": 500 }),
+        acknowledged: false,
+        suggested_action: Some("Run VACUUM to reclaim free space".to_string()),
+    };
+
+    global_notification_bus().emit(test_alert);
+
+    // List notifications via command bus
+    let list_res = dispatch(
+        Command::NotificationsList {
+            severity: Some(NotificationSeverity::Warning),
+            unacknowledged_only: Some(true),
+        },
+        &store,
+    )
+    .await;
+    assert_eq!(list_res["success"], true);
+    assert!(list_res["count"].as_u64().unwrap_or(0) >= 1);
+
+    // Acknowledge alert
+    let ack_res = dispatch(
+        Command::NotificationAck {
+            id: "alert-disk-001".to_string(),
+        },
+        &store,
+    )
+    .await;
+    assert_eq!(ack_res["success"], true);
+    assert_eq!(ack_res["acknowledged"], true);
+
+    // Verify it is no longer unacknowledged
+    let post_ack = dispatch(
+        Command::NotificationsList {
+            severity: None,
+            unacknowledged_only: Some(true),
+        },
+        &store,
+    )
+    .await;
+    let unack_alerts: Vec<String> = post_ack["notifications"]
+        .as_array()
+        .ok_or("missing notifications")?
+        .iter()
+        .filter_map(|n| n["id"].as_str().map(|s| s.to_string()))
+        .collect();
+    assert!(!unack_alerts.contains(&"alert-disk-001".to_string()));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_watchdog_quiescence_anomaly() -> Result<(), Box<dyn std::error::Error>> {
+    let store = DatabaseStore::open_in_memory()?;
+    dispatch(
+        Command::SeedDemo {
+            name: "ecommerce".to_string(),
+        },
+        &store,
+    )
+    .await;
+
+    // Simulate rapid mutations on quiescent table 'categories' (configured threshold is 10/min)
+    for _ in 0..15 {
+        dispatch(
+            Command::WatchdogRecordMutation {
+                table: "categories".to_string(),
+            },
+            &store,
+        )
+        .await;
+    }
+
+    // Run watchdog check
+    let check_res = dispatch(Command::WatchdogCheck, &store).await;
+    assert_eq!(check_res["success"], true);
+    assert!(check_res["new_alerts_emitted"].as_u64().unwrap_or(0) >= 1);
+
+    let alerts = check_res["alerts"].as_array().ok_or("missing alerts")?;
+    let quiescence_alert = alerts
+        .iter()
+        .find(|a| a["category"] == "quiescence_anomaly" && a["source_entity"] == "table:categories");
+    assert!(quiescence_alert.is_some());
+    let alert = quiescence_alert.ok_or("missing quiescence alert")?;
+    assert!(alert["title"].as_str().unwrap_or("").contains("Quiescence Anomaly"));
+    assert!(alert["metrics"]["mutations_last_minute"].as_u64().unwrap_or(0) >= 15);
+
     Ok(())
 }

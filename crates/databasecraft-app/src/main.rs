@@ -296,6 +296,82 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn test_alerts_and_watchdog_gui_integration() -> Result<(), Box<dyn std::error::Error>> {
+        use databasecraft_core::notifications::NotificationCategory;
+
+        let store = Arc::new(DatabaseStore::open_in_memory()?);
+        let rt = Arc::new(tokio::runtime::Runtime::new()?);
+
+        // Seed demo data
+        rt.block_on(dispatch(
+            Command::SeedDemo {
+                name: "ecommerce".to_string(),
+            },
+            &store,
+        ));
+
+        // Create table employees (quiescent archetype)
+        let create_emp = "CREATE TABLE IF NOT EXISTS employees (id INTEGER PRIMARY KEY, name TEXT);";
+        rt.block_on(dispatch(
+            Command::Query {
+                sql: create_emp.to_string(),
+            },
+            &store,
+        ));
+
+        let mut gui = gui::DatabaseCraftGui::new(store.clone(), rt.clone());
+        assert_eq!(gui.active_tab, gui::ActiveTab::Tables);
+
+        // Simulate high churn on quiescent employees table (> 10 mut/min)
+        for i in 0..15 {
+            let insert_sql = format!("INSERT INTO employees (name) VALUES ('Test-{i}');");
+            rt.block_on(dispatch(
+                Command::Query { sql: insert_sql },
+                &store,
+            ));
+            rt.block_on(dispatch(
+                Command::WatchdogRecordMutation {
+                    table: "employees".to_string(),
+                },
+                &store,
+            ));
+        }
+
+        // Run watchdog scan via GUI method
+        gui.run_watchdog_check();
+
+        assert!(gui.watchdog_last_check.is_some());
+        assert!(!gui.notifications.is_empty());
+        assert!(gui.unread_alerts_count >= 1);
+
+        // Verify QuiescenceAnomaly notification
+        let anomaly = gui
+            .notifications
+            .iter()
+            .find(|n| n.category == NotificationCategory::QuiescenceAnomaly)
+            .ok_or("missing QuiescenceAnomaly notification")?;
+        assert_eq!(anomaly.source_entity.as_deref(), Some("table:employees"));
+        assert!(!anomaly.acknowledged);
+
+        // Acknowledge notification
+        let anomaly_id = anomaly.id.clone();
+        gui.ack_notification(&anomaly_id);
+
+        let acked_anomaly = gui
+            .notifications
+            .iter()
+            .find(|n| n.id == anomaly_id)
+            .ok_or("missing acked notification")?;
+        assert!(acked_anomaly.acknowledged);
+
+        // Switch active tab to Alerts
+        gui.active_tab = gui::ActiveTab::Alerts;
+        assert_eq!(gui.active_tab, gui::ActiveTab::Alerts);
+
+        Ok(())
+    }
+
     #[tokio::test]
     async fn test_control_channel_tcp_loopback() -> Result<(), Box<dyn std::error::Error>> {
         let store = Arc::new(DatabaseStore::open_in_memory()?);

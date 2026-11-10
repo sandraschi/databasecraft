@@ -12,6 +12,7 @@
 use databasecraft_core::canvas::{
     AggFunc, CanvasAggregation, CanvasColumn, CanvasNestedRelation, CanvasSpec, TableRelations,
 };
+use databasecraft_core::notifications::{CraftNotification, NotificationSeverity};
 use databasecraft_core::{dispatch, models::ExportTarget, Command, APP_VERSION, CONTROL_PORT};
 use databasecraft_store::DatabaseStore;
 use eframe::egui::{self, Color32, Vec2};
@@ -32,6 +33,7 @@ pub enum ActiveTab {
     Doctor,
     Constructor,
     Export,
+    Alerts,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,6 +96,12 @@ pub struct DatabaseCraftGui {
     pub canvas_rollup_col: String,
     pub canvas_rollup_func: AggFunc,
     pub canvas_rollup_alias: String,
+    // CTO Operations Watchdog and Notification Bus state
+    pub notifications: Vec<CraftNotification>,
+    pub unread_alerts_count: usize,
+    pub watchdog_last_check: Option<Value>,
+    pub alert_filter_severity: Option<NotificationSeverity>,
+    pub alert_filter_unack_only: bool,
 }
 
 impl DatabaseCraftGui {
@@ -161,7 +169,14 @@ impl DatabaseCraftGui {
             canvas_rollup_col: "price".to_string(),
             canvas_rollup_func: AggFunc::Sum,
             canvas_rollup_alias: "total_value".to_string(),
+            notifications: Vec::new(),
+            unread_alerts_count: 0,
+            watchdog_last_check: None,
+            alert_filter_severity: None,
+            alert_filter_unack_only: false,
         };
+
+        app.refresh_notifications();
 
         if let Some(ref t) = first_table {
             app.load_table_data(t);
@@ -626,6 +641,57 @@ impl DatabaseCraftGui {
         self.export_preview = Some(res);
         self.status_message = format!("Export generated for {:?}", self.export_target);
     }
+
+    pub fn refresh_notifications(&mut self) {
+        let res = self.runtime.block_on(dispatch(
+            Command::NotificationsList {
+                severity: None,
+                unacknowledged_only: None,
+            },
+            &self.store,
+        ));
+        let mut list = Vec::new();
+        let mut unack_cnt = 0;
+        if let Some(arr) = res["notifications"].as_array() {
+            for v in arr {
+                if let Ok(notif) = serde_json::from_value::<CraftNotification>(v.clone()) {
+                    if !notif.acknowledged {
+                        unack_cnt += 1;
+                    }
+                    list.push(notif);
+                }
+            }
+        }
+        self.notifications = list;
+        self.unread_alerts_count = unack_cnt;
+    }
+
+    pub fn run_watchdog_check(&mut self) {
+        let start = Instant::now();
+        let res = self
+            .runtime
+            .block_on(dispatch(Command::WatchdogCheck, &self.store));
+        let elapsed = start.elapsed().as_millis();
+        let emitted = res["emitted_count"].as_u64().unwrap_or(0);
+        let health = res["health"].as_str().unwrap_or("nominal");
+        self.status_message = format!(
+            "Watchdog scan complete in {} ms: {} notifications emitted (Health: {})",
+            elapsed, emitted, health
+        );
+        self.watchdog_last_check = Some(res);
+        self.refresh_notifications();
+    }
+
+    pub fn ack_notification(&mut self, id: &str) {
+        let _ = self.runtime.block_on(dispatch(
+            Command::NotificationAck {
+                id: id.to_string(),
+            },
+            &self.store,
+        ));
+        self.refresh_notifications();
+        self.status_message = format!("Acknowledged notification {id}");
+    }
 }
 
 impl eframe::App for DatabaseCraftGui {
@@ -647,6 +713,29 @@ impl eframe::App for DatabaseCraftGui {
                     emerald_bright,
                     format!("Port {CONTROL_PORT} [Plane 2 Active]"),
                 );
+                ui.separator();
+
+                let alert_badge_color = if self.unread_alerts_count > 0 {
+                    Color32::from_rgb(239, 68, 68)
+                } else {
+                    muted_gray
+                };
+                let alert_label = if self.unread_alerts_count > 0 {
+                    format!("🚨 {} Alerts", self.unread_alerts_count)
+                } else {
+                    "🔔 Alerts".to_string()
+                };
+                if ui
+                    .button(
+                        egui::RichText::new(alert_label)
+                            .color(alert_badge_color)
+                            .strong(),
+                    )
+                    .clicked()
+                {
+                    self.active_tab = ActiveTab::Alerts;
+                    self.refresh_notifications();
+                }
                 ui.separator();
 
                 if ui.button("🌱 Seed: Ecommerce").clicked() {
@@ -802,6 +891,15 @@ impl eframe::App for DatabaseCraftGui {
                     "📦 Cross-Craft Merge",
                 ) {
                     self.active_tab = ActiveTab::Export;
+                }
+                let nav_alert_label = if self.unread_alerts_count > 0 {
+                    format!("🚨 Alerts & Watchdog ({})", self.unread_alerts_count)
+                } else {
+                    "🔔 Alerts & Watchdog".to_string()
+                };
+                if nav_button(ui, self.active_tab == ActiveTab::Alerts, &nav_alert_label) {
+                    self.active_tab = ActiveTab::Alerts;
+                    self.refresh_notifications();
                 }
 
                 ui.separator();
@@ -2255,6 +2353,272 @@ impl eframe::App for DatabaseCraftGui {
                             serde_json::to_string_pretty(res).unwrap_or_else(|_| res.to_string()),
                         );
                     });
+                }
+            }
+            ActiveTab::Alerts => {
+                ui.heading("🚨 CTO Operations Watchdog & Anomaly Alert Bus");
+                ui.colored_label(
+                    muted_gray,
+                    "Proactive 24/7 monitoring for database disk starvation, quiescent table churn, foreign-key orphans, and structural corruption.",
+                );
+                ui.separator();
+
+                // Top Action & Filter Row
+                ui.horizontal(|ui| {
+                    if ui.button("🔍 Run Watchdog Scan Now").clicked() {
+                        self.run_watchdog_check();
+                    }
+                    if ui.button("⟳ Refresh Feed").clicked() {
+                        self.refresh_notifications();
+                    }
+                    ui.separator();
+                    ui.checkbox(&mut self.alert_filter_unack_only, "Unacknowledged only");
+                    ui.separator();
+                    ui.label("Severity:");
+                    if ui
+                        .selectable_label(self.alert_filter_severity.is_none(), "All")
+                        .clicked()
+                    {
+                        self.alert_filter_severity = None;
+                    }
+                    if ui
+                        .selectable_label(
+                            self.alert_filter_severity == Some(NotificationSeverity::Warning),
+                            "Warning+",
+                        )
+                        .clicked()
+                    {
+                        self.alert_filter_severity = Some(NotificationSeverity::Warning);
+                    }
+                    if ui
+                        .selectable_label(
+                            self.alert_filter_severity == Some(NotificationSeverity::Critical),
+                            "Critical+",
+                        )
+                        .clicked()
+                    {
+                        self.alert_filter_severity = Some(NotificationSeverity::Critical);
+                    }
+                });
+
+                ui.add_space(8.0);
+
+                // 3-Column Diagnostic Summary Banner
+                ui.columns(3, |columns| {
+                    columns[0].group(|ui| {
+                        ui.strong("💽 Storage & WAL Health");
+                        if let Some(ref report) = self.watchdog_last_check {
+                            if let Some(disk) = report.get("disk_stats") {
+                                let db_b = disk["db_bytes"].as_u64().unwrap_or(0);
+                                let wal_b = disk["wal_bytes"].as_u64().unwrap_or(0);
+                                ui.label(format!(
+                                    "DB Size: {:.2} MB",
+                                    db_b as f64 / (1024.0 * 1024.0)
+                                ));
+                                ui.label(format!("WAL Size: {:.2} KB", wal_b as f64 / 1024.0));
+                            } else {
+                                ui.label("In-Memory / Default");
+                            }
+                        } else {
+                            ui.colored_label(muted_gray, "Click 'Run Watchdog Scan' to measure disk");
+                        }
+                    });
+
+                    columns[1].group(|ui| {
+                        ui.strong("⚡ Quiescent Table Churn");
+                        ui.label("Monitored: employees, roles, config");
+                        ui.colored_label(emerald_bright, "Threshold: ≤10 mut/min");
+                        if let Some(ref report) = self.watchdog_last_check {
+                            if let Some(stats) =
+                                report.get("quiescent_stats").and_then(|v| v.as_object())
+                            {
+                                if stats.is_empty() {
+                                    ui.colored_label(
+                                        emerald_bright,
+                                        "All static tables quiescent (0 mut/min)",
+                                    );
+                                } else {
+                                    for (tbl, rate) in stats {
+                                        ui.label(format!("{}: {} mut/min", tbl, rate));
+                                    }
+                                }
+                            } else {
+                                ui.colored_label(emerald_bright, "No churn recorded");
+                            }
+                        } else {
+                            ui.colored_label(muted_gray, "Sliding 60-second window active");
+                        }
+                    });
+
+                    columns[2].group(|ui| {
+                        ui.strong("🛡️ System & Integrity Health");
+                        let unack = self.unread_alerts_count;
+                        if unack == 0 {
+                            ui.colored_label(emerald_bright, "✓ Zero Active Anomalies");
+                        } else {
+                            ui.colored_label(
+                                Color32::from_rgb(239, 68, 68),
+                                format!("🚨 {} Unacknowledged Alerts", unack),
+                            );
+                        }
+                        if let Some(ref report) = self.watchdog_last_check {
+                            let health = report["health"].as_str().unwrap_or("nominal");
+                            ui.label(format!("Watchdog Status: {}", health.to_uppercase()));
+                        } else {
+                            ui.colored_label(muted_gray, "Awaiting initial manual scan");
+                        }
+                    });
+                });
+
+                ui.add_space(8.0);
+                ui.strong("NOTIFICATION FEED & REMEDIATION PIPELINE");
+                ui.separator();
+
+                let mut to_ack: Option<String> = None;
+                let mut switch_to_doctor = false;
+                let mut switch_to_tables = false;
+                let mut run_vacuum_now = false;
+
+                let filtered_notifications: Vec<&CraftNotification> = self
+                    .notifications
+                    .iter()
+                    .filter(|n| {
+                        if self.alert_filter_unack_only && n.acknowledged {
+                            return false;
+                        }
+                        if let Some(min_sev) = self.alert_filter_severity {
+                            if n.severity < min_sev {
+                                return false;
+                            }
+                        }
+                        true
+                    })
+                    .collect();
+
+                if filtered_notifications.is_empty() {
+                    egui::Frame::group(ui.style()).show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.colored_label(emerald_bright, "✅");
+                            ui.strong("Nominal Operating State:");
+                            ui.label(
+                                "No active operational alerts or threshold violations detected.",
+                            );
+                        });
+                    });
+                } else {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        for notif in filtered_notifications {
+                            let border_color = match notif.severity {
+                                NotificationSeverity::Disaster => Color32::from_rgb(185, 28, 28),
+                                NotificationSeverity::Critical => Color32::from_rgb(239, 68, 68),
+                                NotificationSeverity::Warning => amber,
+                                NotificationSeverity::Info => sky_blue,
+                            };
+                            let sev_badge = match notif.severity {
+                                NotificationSeverity::Disaster => "💥 DISASTER",
+                                NotificationSeverity::Critical => "🚨 CRITICAL",
+                                NotificationSeverity::Warning => "⚠️ WARNING",
+                                NotificationSeverity::Info => "ℹ️ INFO",
+                            };
+
+                            egui::Frame::group(ui.style())
+                                .stroke(egui::Stroke::new(1.5, border_color))
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.colored_label(border_color, sev_badge);
+                                        ui.separator();
+                                        ui.colored_label(
+                                            muted_gray,
+                                            format!("[{}]", notif.category.as_str()),
+                                        );
+                                        ui.strong(&notif.title);
+                                        ui.with_layout(
+                                            egui::Layout::right_to_left(egui::Align::Center),
+                                            |ui| {
+                                                if notif.acknowledged {
+                                                    ui.colored_label(muted_gray, "✓ Acknowledged");
+                                                } else if ui.button("✓ Acknowledge").clicked() {
+                                                    to_ack = Some(notif.id.clone());
+                                                }
+                                                ui.colored_label(muted_gray, &notif.timestamp);
+                                            },
+                                        );
+                                    });
+
+                                    ui.label(&notif.message);
+
+                                    if let Some(ref entity) = notif.source_entity {
+                                        ui.horizontal(|ui| {
+                                            ui.colored_label(muted_gray, "Source Entity:");
+                                            ui.monospace(entity);
+                                        });
+                                    }
+
+                                    if notif.metrics != Value::Null
+                                        && !notif
+                                            .metrics
+                                            .as_object()
+                                            .is_none_or(|o| o.is_empty())
+                                    {
+                                        ui.collapsing("View Anomaly Metrics", |ui| {
+                                            ui.monospace(
+                                                serde_json::to_string_pretty(&notif.metrics)
+                                                    .unwrap_or_else(|_| notif.metrics.to_string()),
+                                            );
+                                        });
+                                    }
+
+                                    if let Some(ref action) = notif.suggested_action {
+                                        ui.horizontal(|ui| {
+                                            ui.colored_label(sky_blue, "Suggested Remediation:");
+                                            ui.strong(action);
+
+                                            let act_lower = action.to_lowercase();
+                                            if act_lower.contains("vacuum") {
+                                                if ui.button("🧹 Run VACUUM Now").clicked() {
+                                                    run_vacuum_now = true;
+                                                }
+                                            } else if act_lower.contains("doctor")
+                                                || act_lower.contains("repair")
+                                            {
+                                                if ui
+                                                    .button("🩺 Jump to Doctor & Auto-Repair")
+                                                    .clicked()
+                                                {
+                                                    switch_to_doctor = true;
+                                                }
+                                            } else if (act_lower.contains("review")
+                                                || act_lower.contains("audit"))
+                                                && ui.button("📋 Open Table Viewer").clicked()
+                                            {
+                                                switch_to_tables = true;
+                                            }
+                                        });
+                                    }
+                                });
+                            ui.add_space(4.0);
+                        }
+                    });
+                }
+
+                if let Some(id) = to_ack {
+                    self.ack_notification(&id);
+                }
+                if run_vacuum_now {
+                    let _ = self
+                        .runtime
+                        .block_on(dispatch(Command::Vacuum, &self.store));
+                    self.status_message =
+                        "Vacuum executed successfully from notification remediation action"
+                            .to_string();
+                    self.run_watchdog_check();
+                }
+                if switch_to_doctor {
+                    self.active_tab = ActiveTab::Doctor;
+                    self.run_diagnostics();
+                }
+                if switch_to_tables {
+                    self.active_tab = ActiveTab::Tables;
                 }
             }
         });
