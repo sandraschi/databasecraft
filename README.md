@@ -43,6 +43,12 @@ Inspired by the MIT CSAIL *Relational Canvas* research (*SIEUFERD*) and commerci
 # Show status and registered control port 14113
 cargo run -p databasecraft-mcp -- status
 
+# Run CTO resident watchdog check (detects disk starvation, quiescence churn anomalies)
+cargo run -p databasecraft-mcp -- watchdog
+
+# List active notifications from the Craft Notification Bus
+cargo run -p databasecraft-mcp -- notifications
+
 # Seed deterministic ecommerce catalog
 cargo run -p databasecraft-mcp -- seed-demo --name ecommerce
 
@@ -87,8 +93,10 @@ cargo run -p databasecraft-app -- --control 14113
 **Does today:** 
 - Core/Store/MCP/App crates compiling under strict `#![deny(clippy::unwrap_used)]`.
 - Relational Canvas AST, SQLite JSON query compiler, and relation sprouter.
-- Desktop GUI with 10 integrated tabs: `Table Data`, `✨ Relational Canvas`, `SQL & NLQ Console`, `Schema ERD`, `AI Copilot`, `RAG Vectors`, `Profiler`, `Doctor`, `Domain Constructor`, `Cross-Craft Export`.
-- 19 automated tests passing with zero warnings.
+- Generalized Craft Notification Bus with severity levels (`info`, `warning`, `critical`, `disaster`) and ring buffer.
+- Autonomous CTO Watchdog with quiescent table mutation anomaly detection (e.g. `employees`, `roles`).
+- Desktop GUI with 11 integrated tabs: `Table Data`, `✨ Relational Canvas`, `SQL & NLQ Console`, `Schema ERD`, `AI Copilot`, `RAG Vectors`, `Profiler`, `Doctor`, `Domain Constructor`, `Cross-Craft Export`, `🚨 Alerts & Watchdog`.
+- 25 automated tests passing with zero warnings.
 - MCP stdio framing (`MCP 2024-11-05`) + TCP Plane 2 on control port `14113`.
 
 **Lineage:**  

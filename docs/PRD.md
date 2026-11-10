@@ -24,6 +24,7 @@ DatabaseCraft provides this keystone in a single, zero-panic, pure-Rust workspac
 ## 2. Target Users & Operating Personas
 
 * **Chief Financial Officers (CFOs) & Financial Controllers**: Monitoring 24/7 continuous operational and financial perspectives (Entity -> Invoices -> Line Items) with live atomic rollups and zero Cartesian row explosion.
+* **Chief Technology Officers (CTOs) & Resident Database Administrators**: 24/7 autonomous monitoring of database health, disk starvation, quiescent table churn (e.g. unexpected mutations on static `employees` or `roles` tables), foreign-key orphan buildup, and 1-click remediation.
 * **Creative Directors & Production Leads**: Managing shoot metadata, shot logs, call sheets, asset inventories, and multi-app publishing pipelines.
 * **Autonomous AI Agents (Gemini, Claude Opus, Codex)**: Querying, validating, mutating, and feeding structured data across the 13 ArtCraft apps via line-delimited MCP stdio (`databasecraft-cli mcp`).
 * **Technical Authors & Catalog Publishers**: Merging product databases directly into InDesign/DesignCraft spreads and WordCraft templates.
@@ -91,6 +92,8 @@ Following the **ArtCraft Containment Harness** ([`CONTAINMENT_AND_CRATES.md`](..
 | **F21** | Bidirectional Relation Sprouter | Discovers forward (N:1) and reverse (1:N) foreign keys for 1-click subquery sprouting. | ✅ Complete |
 | **F22** | egui Relational Perspective UI | Multi-tier headers, nested child sub-grids, and inline rollups without Cartesian explosion. | ✅ Complete |
 | **F23** | 24/7 Executive CFO Cockpit | Ultra-low footprint (sub-30MB RAM) desktop cockpit for continuous financial monitoring. | ✅ Complete |
+| **F24** | Craft Generalized Notification Bus | In-process, TCP Plane 2, and UI operational alert bus with bounded ring buffer and severity classification (`info`, `warning`, `critical`, `disaster`). | ✅ Complete |
+| **F25** | CTO Resident Watchdog & Quiescence Anomaly Detector | Automated monitoring for disk starvation (DB/WAL file growth), unexpected mutations on static tables (`employees`, `roles`, `categories`), and foreign key degradation with 1-click remediation. | ✅ Complete |
 
 ---
 
@@ -98,7 +101,7 @@ Following the **ArtCraft Containment Harness** ([`CONTAINMENT_AND_CRATES.md`](..
 
 1. **Trade Dress**: Dark canvas (`#121316`), Slate-950 panels, hairline borders (`#26282E`), and Obsidian Emerald accents (`#108B7E`).
 2. **Keyboard First**: Global Field Selector palette (`Ctrl+K`), quick query run (`Ctrl+Enter`), cell navigation (`Arrows`), zoom (`Ctrl+Wheel`).
-3. **10 Integrated Workspaces**:
+3. **11 Integrated Workspaces**:
    * **Table Grid**: High-performance virtualized cell table with column sort, filter pills, and 1-click canvas launcher.
    * **✨ Relational Canvas**: Ultorg-style Non-1NF hierarchical perspectives, 1-click relation sprouting, inline rollups, and live SQL drawer.
    * **SQL & NLQ Console**: Syntax-highlighted SQL editor with AI Natural Language Query translator.
@@ -109,6 +112,7 @@ Following the **ArtCraft Containment Harness** ([`CONTAINMENT_AND_CRATES.md`](..
    * **Doctor & Repair**: Auto-repair sequence (Reindex, Purge FK Orphans, Salvage clone).
    * **Domain Constructor**: Turnkey blueprints (`small_business`, `billing`, `club`, `surgery`, `creative_agency`).
    * **Cross-Craft Export**: Live data merge generation for DesignCraft, DeckCraft, WordCraft, GridCraft, and PdfCraft.
+   * **🚨 Alerts & Watchdog**: Proactive CTO operations dashboard with 3-column diagnostic metrics, quiescence churn violation feed, and 1-click remediation actions (Vacuum, Doctor, Table Review).
 4. **Zero-Glitch Performance**: Immediate-mode GPU rendering at 60–144 FPS with sub-10ms UI latency and sub-30MB baseline memory footprint.
 
 ---
