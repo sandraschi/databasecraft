@@ -10,7 +10,8 @@
 #![deny(clippy::todo)]
 
 use databasecraft_core::canvas::{
-    AggFunc, CanvasAggregation, CanvasColumn, CanvasNestedRelation, CanvasSpec, TableRelations,
+    suggest_display_column, AggFunc, CanvasAggregation, CanvasColumn, CanvasInlinedLookup,
+    CanvasNestedRelation, CanvasSort, CanvasSpec, TableRelations,
 };
 use databasecraft_core::notifications::{CraftNotification, NotificationSeverity};
 use databasecraft_core::{dispatch, models::ExportTarget, Command, APP_VERSION, CONTROL_PORT};
@@ -20,6 +21,26 @@ use serde_json::Value;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::runtime::Runtime;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActiveCellEdit {
+    pub table: String,
+    pub pk_col: String,
+    pub pk_val: Value,
+    pub col: String,
+    pub initial_str: String,
+    pub edit_str: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct CellMutation {
+    pub table: String,
+    pub pk_col: String,
+    pub pk_val: Value,
+    pub col: String,
+    pub old_val: Value,
+    pub new_val: Value,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveTab {
@@ -321,6 +342,10 @@ pub struct DatabaseCraftGui {
     pub watchdog_last_check: Option<Value>,
     pub alert_filter_severity: Option<NotificationSeverity>,
     pub alert_filter_unack_only: bool,
+    // In-place cell editing & undo stack
+    pub active_cell_edit: Option<ActiveCellEdit>,
+    pub cell_undo_stack: Vec<CellMutation>,
+    pub cell_redo_stack: Vec<CellMutation>,
 }
 
 impl DatabaseCraftGui {
@@ -394,6 +419,9 @@ impl DatabaseCraftGui {
             watchdog_last_check: None,
             alert_filter_severity: None,
             alert_filter_unack_only: false,
+            active_cell_edit: None,
+            cell_undo_stack: Vec::new(),
+            cell_redo_stack: Vec::new(),
         };
 
         app.refresh_notifications();
@@ -683,6 +711,7 @@ impl DatabaseCraftGui {
         let spec = CanvasSpec {
             root_table: table_name.to_string(),
             columns: cols,
+            inlined_lookups: Vec::new(),
             nested_relations: Vec::new(),
             aggregations: Vec::new(),
             filters: Vec::new(),
@@ -753,6 +782,7 @@ impl DatabaseCraftGui {
                     foreign_key_col: r.target_col.clone(),
                     is_reverse,
                     columns: child_cols,
+                    inlined_lookups: Vec::new(),
                     nested_relations: Vec::new(),
                     aggregations: Vec::new(),
                     filters: Vec::new(),
@@ -766,6 +796,178 @@ impl DatabaseCraftGui {
             }
         }
         self.run_canvas_query();
+    }
+
+    pub fn inline_foreign_key(&mut self, rel_name: &str) {
+        if let (Some(ref mut spec), Some(ref relations)) =
+            (&mut self.canvas_spec, &self.canvas_relations)
+        {
+            if let Some(r) = relations
+                .forward_relations
+                .iter()
+                .find(|r| r.relation_name.eq_ignore_ascii_case(rel_name))
+            {
+                let display_col = suggest_display_column(&self.store, &r.table)
+                    .unwrap_or_else(|_| "name".to_string());
+                let alias = format!("{}_{}", r.relation_name, display_col);
+
+                let lookup = CanvasInlinedLookup {
+                    local_fk_col: r.source_col.clone(),
+                    foreign_table: r.table.clone(),
+                    foreign_pk_col: r.target_col.clone(),
+                    display_col,
+                    alias: alias.clone(),
+                };
+
+                spec.inlined_lookups
+                    .retain(|existing| !existing.alias.eq_ignore_ascii_case(&alias));
+                spec.inlined_lookups.push(lookup);
+            }
+        }
+        self.run_canvas_query();
+    }
+
+    pub fn remove_inlined_lookup(&mut self, alias: &str) {
+        if let Some(ref mut spec) = self.canvas_spec {
+            spec.inlined_lookups
+                .retain(|l| !l.alias.eq_ignore_ascii_case(alias));
+        }
+        self.run_canvas_query();
+    }
+
+    pub fn toggle_canvas_sort(&mut self, col_name: &str) {
+        if let Some(ref mut spec) = self.canvas_spec {
+            let existing_idx = spec
+                .sort
+                .iter()
+                .position(|s| s.column.eq_ignore_ascii_case(col_name));
+            if let Some(idx) = existing_idx {
+                if !spec.sort[idx].descending {
+                    // Switch ASC -> DESC
+                    spec.sort[idx].descending = true;
+                } else {
+                    // Switch DESC -> None (remove sort)
+                    spec.sort.remove(idx);
+                }
+            } else {
+                // Add ASC
+                spec.sort.push(CanvasSort {
+                    column: col_name.to_string(),
+                    descending: false,
+                });
+            }
+        }
+        self.run_canvas_query();
+    }
+
+    pub fn commit_cell_edit(&mut self) {
+        if let Some(edit) = self.active_cell_edit.take() {
+            let parsed_val: Value = if edit.edit_str.eq_ignore_ascii_case("null") {
+                Value::Null
+            } else if let Ok(n) = edit.edit_str.parse::<i64>() {
+                Value::Number(n.into())
+            } else if let Ok(f) = edit.edit_str.parse::<f64>() {
+                serde_json::Number::from_f64(f)
+                    .map(Value::Number)
+                    .unwrap_or_else(|| Value::String(edit.edit_str.clone()))
+            } else if let Ok(b) = edit.edit_str.parse::<bool>() {
+                Value::Bool(b)
+            } else {
+                Value::String(edit.edit_str.clone())
+            };
+
+            let old_val: Value = if let Ok(n) = edit.initial_str.parse::<i64>() {
+                Value::Number(n.into())
+            } else if let Ok(f) = edit.initial_str.parse::<f64>() {
+                serde_json::Number::from_f64(f)
+                    .map(Value::Number)
+                    .unwrap_or_else(|| Value::String(edit.initial_str.clone()))
+            } else if let Ok(b) = edit.initial_str.parse::<bool>() {
+                Value::Bool(b)
+            } else {
+                Value::String(edit.initial_str.clone())
+            };
+
+            let res = self.runtime.block_on(dispatch(
+                Command::UpdateCell {
+                    table: edit.table.clone(),
+                    pk_col: edit.pk_col.clone(),
+                    pk_val: edit.pk_val.clone(),
+                    col: edit.col.clone(),
+                    new_val: parsed_val.clone(),
+                },
+                &self.store,
+            ));
+
+            if res["success"] == true {
+                self.cell_undo_stack.push(CellMutation {
+                    table: edit.table,
+                    pk_col: edit.pk_col,
+                    pk_val: edit.pk_val,
+                    col: edit.col,
+                    old_val,
+                    new_val: parsed_val,
+                });
+                self.cell_redo_stack.clear();
+                self.status_message = "Cell updated successfully".to_string();
+                self.run_canvas_query();
+                if let Some(ref t) = self.selected_table.clone() {
+                    self.load_table_data(t);
+                }
+            } else {
+                self.status_message = format!("Cell update failed: {}", res["error"]);
+            }
+        }
+    }
+
+    pub fn cancel_cell_edit(&mut self) {
+        self.active_cell_edit = None;
+    }
+
+    pub fn undo_cell_mutation(&mut self) {
+        if let Some(mutation) = self.cell_undo_stack.pop() {
+            let res = self.runtime.block_on(dispatch(
+                Command::UpdateCell {
+                    table: mutation.table.clone(),
+                    pk_col: mutation.pk_col.clone(),
+                    pk_val: mutation.pk_val.clone(),
+                    col: mutation.col.clone(),
+                    new_val: mutation.old_val.clone(),
+                },
+                &self.store,
+            ));
+            if res["success"] == true {
+                self.cell_redo_stack.push(mutation);
+                self.status_message = "Undid last cell edit".to_string();
+                self.run_canvas_query();
+                if let Some(ref t) = self.selected_table.clone() {
+                    self.load_table_data(t);
+                }
+            }
+        }
+    }
+
+    pub fn redo_cell_mutation(&mut self) {
+        if let Some(mutation) = self.cell_redo_stack.pop() {
+            let res = self.runtime.block_on(dispatch(
+                Command::UpdateCell {
+                    table: mutation.table.clone(),
+                    pk_col: mutation.pk_col.clone(),
+                    pk_val: mutation.pk_val.clone(),
+                    col: mutation.col.clone(),
+                    new_val: mutation.new_val.clone(),
+                },
+                &self.store,
+            ));
+            if res["success"] == true {
+                self.cell_undo_stack.push(mutation);
+                self.status_message = "Redid cell edit".to_string();
+                self.run_canvas_query();
+                if let Some(ref t) = self.selected_table.clone() {
+                    self.load_table_data(t);
+                }
+            }
+        }
     }
 
     pub fn remove_sprouted_relation(&mut self, rel_name: &str) {
@@ -1332,11 +1534,29 @@ impl eframe::App for DatabaseCraftGui {
                         CanvasDensity::Relaxed,
                         "Relaxed",
                     );
+
+                    ui.separator();
+                    if !self.cell_undo_stack.is_empty()
+                        && ui
+                            .button(format!("↩ Undo ({})", self.cell_undo_stack.len()))
+                            .clicked()
+                    {
+                        self.undo_cell_mutation();
+                    }
+                    if !self.cell_redo_stack.is_empty()
+                        && ui
+                            .button(format!("↪ Redo ({})", self.cell_redo_stack.len()))
+                            .clicked()
+                    {
+                        self.redo_cell_mutation();
+                    }
                 });
 
                 // Sprout bar: Forward and reverse relationships discovered
                 let mut sprout_action: Option<(String, bool)> = None;
+                let mut inline_action: Option<String> = None;
                 let mut remove_sprout_action: Option<String> = None;
+                let mut remove_inline_action: Option<String> = None;
                 let mut remove_agg_alias: Option<String> = None;
 
                 if let Some(ref rels) = self.canvas_relations.clone() {
@@ -1386,8 +1606,29 @@ impl eframe::App for DatabaseCraftGui {
                                 {
                                     remove_sprout_action = Some(r.relation_name.clone());
                                 }
-                            } else if ui.button(format!("+ 🔗 Sprout: {} (N:1)", r.relation_name)).clicked() {
-                                sprout_action = Some((r.relation_name.clone(), false));
+                            } else {
+                                if ui.button(format!("+ 🔗 Sprout: {} (N:1)", r.relation_name)).clicked() {
+                                    sprout_action = Some((r.relation_name.clone(), false));
+                                }
+                                if ui.button(format!("+ 🏷️ Inline: {} (N:1)", r.relation_name)).clicked() {
+                                    inline_action = Some(r.relation_name.clone());
+                                }
+                            }
+                        }
+
+                        // Active inlined lookups (Compact Joins)
+                        if let Some(ref spec) = self.canvas_spec {
+                            for lookup in &spec.inlined_lookups {
+                                if ui
+                                    .button(
+                                        egui::RichText::new(format!("✓ 🏷️ {} ✖", lookup.alias))
+                                            .color(Color32::from_rgb(192, 132, 252))
+                                            .strong(),
+                                    )
+                                    .clicked()
+                                {
+                                    remove_inline_action = Some(lookup.alias.clone());
+                                }
                             }
                         }
 
@@ -1397,7 +1638,7 @@ impl eframe::App for DatabaseCraftGui {
                                 if ui
                                     .button(
                                         egui::RichText::new(format!(
-                                            "∑ {}: {:?}({}) ✖",
+                                             "∑ {}: {:?}({}) ✖",
                                             agg.alias, agg.func, agg.target_col
                                         ))
                                         .color(amber),
@@ -1414,8 +1655,14 @@ impl eframe::App for DatabaseCraftGui {
                 if let Some((rel, is_rev)) = sprout_action {
                     self.sprout_relation(&rel, is_rev);
                 }
+                if let Some(rel) = inline_action {
+                    self.inline_foreign_key(&rel);
+                }
                 if let Some(rel) = remove_sprout_action {
                     self.remove_sprouted_relation(&rel);
+                }
+                if let Some(alias) = remove_inline_action {
+                    self.remove_inlined_lookup(&alias);
                 }
                 if let Some(alias) = remove_agg_alias {
                     self.remove_canvas_aggregation(&alias);
@@ -1515,6 +1762,13 @@ impl eframe::App for DatabaseCraftGui {
                                 })
                                 .unwrap_or_default();
 
+                            // Extract inlined lookups (Compact Joins)
+                            let inlined_lookups = self
+                                .canvas_spec
+                                .as_ref()
+                                .map(|s| s.inlined_lookups.clone())
+                                .unwrap_or_default();
+
                             // Extract nested relations
                             let nested_rels = self
                                 .canvas_spec
@@ -1528,6 +1782,19 @@ impl eframe::App for DatabaseCraftGui {
                                 .as_ref()
                                 .map(|s| s.aggregations.clone())
                                 .unwrap_or_default();
+
+                            let pk_col = self
+                                .store
+                                .get_primary_key(&current_table)
+                                .ok()
+                                .flatten()
+                                .unwrap_or_else(|| "id".to_string());
+
+                            let mut commit_cell = false;
+                            let mut cancel_cell = false;
+                            let mut start_cell_edit: Option<(String, String, Value, String, String)> =
+                                None;
+                            let mut toggle_sort_col: Option<String> = None;
 
                             egui::ScrollArea::both().show(ui, |ui| {
                                 // Outer container with hairline borders
@@ -1559,6 +1826,29 @@ impl eframe::App for DatabaseCraftGui {
                                                             .color(Color32::WHITE),
                                                     );
                                                 });
+
+                                            // Inlined Lookups Band
+                                            if !inlined_lookups.is_empty() {
+                                                egui::Frame::new()
+                                                    .fill(Color32::from_rgb(58, 28, 92))
+                                                    .stroke(egui::Stroke::new(
+                                                        1.0,
+                                                        Color32::from_rgb(168, 85, 247),
+                                                    ))
+                                                    .inner_margin(egui::Margin::symmetric(12, 4))
+                                                    .show(ui, |ui| {
+                                                        ui.strong(
+                                                            egui::RichText::new(format!(
+                                                                "🏷️ {} INLINED (Compact)",
+                                                                inlined_lookups.len()
+                                                            ))
+                                                            .size(font_size + 1.0)
+                                                            .color(Color32::from_rgb(
+                                                                233, 213, 255,
+                                                            )),
+                                                        );
+                                                    });
+                                            }
 
                                             // Nested Subquery Bands
                                             for rel in &nested_rels {
@@ -1624,8 +1914,27 @@ impl eframe::App for DatabaseCraftGui {
                                                     ui.colored_label(muted_gray, "#");
                                                 });
 
-                                            // Root table column headers
+                                            // Root table column headers with interactive sorting
                                             for col in &root_cols {
+                                                let sort_icon = self
+                                                    .canvas_spec
+                                                    .as_ref()
+                                                    .and_then(|s| {
+                                                        s.sort
+                                                            .iter()
+                                                            .find(|si| {
+                                                                si.column.eq_ignore_ascii_case(col)
+                                                            })
+                                                            .map(|si| {
+                                                                if si.descending {
+                                                                    " ▼"
+                                                                } else {
+                                                                    " ▲"
+                                                                }
+                                                            })
+                                                    })
+                                                    .unwrap_or("");
+
                                                 egui::Frame::new()
                                                     .fill(header_bg)
                                                     .stroke(border_stroke)
@@ -1633,9 +1942,38 @@ impl eframe::App for DatabaseCraftGui {
                                                         pad.0, 5,
                                                     ))
                                                     .show(ui, |ui| {
+                                                        let btn_text = format!(
+                                                            "{}{sort_icon}",
+                                                            col.to_uppercase()
+                                                        );
+                                                        if ui
+                                                            .button(
+                                                                egui::RichText::new(btn_text)
+                                                                    .color(emerald_bright)
+                                                                    .strong(),
+                                                            )
+                                                            .clicked()
+                                                        {
+                                                            toggle_sort_col = Some(col.clone());
+                                                        }
+                                                    });
+                                            }
+
+                                            // Inlined lookups column headers
+                                            for lookup in &inlined_lookups {
+                                                egui::Frame::new()
+                                                    .fill(Color32::from_rgb(26, 20, 36))
+                                                    .stroke(border_stroke)
+                                                    .inner_margin(egui::Margin::symmetric(
+                                                        pad.0, 5,
+                                                    ))
+                                                    .show(ui, |ui| {
                                                         ui.colored_label(
-                                                            emerald_bright,
-                                                            col.to_uppercase(),
+                                                            Color32::from_rgb(192, 132, 252),
+                                                            format!(
+                                                                "🏷️ {}",
+                                                                lookup.alias.to_uppercase()
+                                                            ),
                                                         );
                                                     });
                                             }
@@ -1730,10 +2068,92 @@ impl eframe::App for DatabaseCraftGui {
                                                                     );
                                                                 });
 
-                                                            // Root columns
+                                                            // Root columns with interactive cell editing
+                                                            let row_pk_val = obj
+                                                                .get(&pk_col)
+                                                                .cloned()
+                                                                .unwrap_or(Value::Number(
+                                                                    (row_idx as i64).into(),
+                                                                ));
+
                                                             for col in &root_cols {
                                                                 let val = obj
                                                                     .get(col)
+                                                                    .unwrap_or(&Value::Null);
+
+                                                                let is_editing = self
+                                                                    .active_cell_edit
+                                                                    .as_ref()
+                                                                    .is_some_and(|e| {
+                                                                        e.table == current_table
+                                                                            && e.pk_val
+                                                                                == row_pk_val
+                                                                            && e.col == *col
+                                                                    });
+
+                                                                egui::Frame::new()
+                                                                    .stroke(border_stroke)
+                                                                    .inner_margin(
+                                                                        egui::Margin::symmetric(
+                                                                            pad.0, pad.1,
+                                                                        ),
+                                                                    )
+                                                                    .show(ui, |ui| {
+                                                                        if is_editing {
+                                                                            ui.horizontal(|ui| {
+                                                                                if let Some(
+                                                                                    ref mut edit,
+                                                                                ) = self
+                                                                                    .active_cell_edit
+                                                                                {
+                                                                                    let text_resp = ui.add(
+                                                                                        egui::TextEdit::singleline(
+                                                                                            &mut edit.edit_str,
+                                                                                        )
+                                                                                        .desired_width(85.0),
+                                                                                    );
+                                                                                    if text_resp.lost_focus()
+                                                                                        && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                                                                                    {
+                                                                                        commit_cell = true;
+                                                                                    }
+                                                                                }
+                                                                                if ui.button("✓").clicked() {
+                                                                                    commit_cell = true;
+                                                                                }
+                                                                                if ui.button("✖").clicked() {
+                                                                                    cancel_cell = true;
+                                                                                }
+                                                                            });
+                                                                        } else {
+                                                                            let cell_resp = ui.scope(|ui| {
+                                                                                render_formatted_cell(
+                                                                                    ui, col, val, density,
+                                                                                );
+                                                                            }).response;
+
+                                                                            if cell_resp.double_clicked() {
+                                                                                let val_str = match val {
+                                                                                    Value::String(s) => s.clone(),
+                                                                                    Value::Null => "".to_string(),
+                                                                                    _ => val.to_string(),
+                                                                                };
+                                                                                start_cell_edit = Some((
+                                                                                    current_table.clone(),
+                                                                                    pk_col.clone(),
+                                                                                    row_pk_val.clone(),
+                                                                                    col.clone(),
+                                                                                    val_str,
+                                                                                ));
+                                                                            }
+                                                                        }
+                                                                    });
+                                                            }
+
+                                                            // Inlined lookups (Compact Joins)
+                                                            for lookup in &inlined_lookups {
+                                                                let val = obj
+                                                                    .get(&lookup.alias)
                                                                     .unwrap_or(&Value::Null);
                                                                 egui::Frame::new()
                                                                     .stroke(border_stroke)
@@ -1744,7 +2164,10 @@ impl eframe::App for DatabaseCraftGui {
                                                                     )
                                                                     .show(ui, |ui| {
                                                                         render_formatted_cell(
-                                                                            ui, col, val, density,
+                                                                            ui,
+                                                                            &lookup.alias,
+                                                                            val,
+                                                                            density,
                                                                         );
                                                                     });
                                                             }
@@ -1918,6 +2341,26 @@ impl eframe::App for DatabaseCraftGui {
                                         }
                                     });
                             });
+
+                            if commit_cell {
+                                self.commit_cell_edit();
+                            }
+                            if cancel_cell {
+                                self.cancel_cell_edit();
+                            }
+                            if let Some((table, pk_col, pk_val, col, val_str)) = start_cell_edit {
+                                self.active_cell_edit = Some(ActiveCellEdit {
+                                    table,
+                                    pk_col,
+                                    pk_val,
+                                    col,
+                                    initial_str: val_str.clone(),
+                                    edit_str: val_str,
+                                });
+                            }
+                            if let Some(col) = toggle_sort_col {
+                                self.toggle_canvas_sort(&col);
+                            }
                         }
                     } else {
                         ui.colored_label(

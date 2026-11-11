@@ -113,6 +113,22 @@ pub struct CanvasAggregation {
     pub alias: String,
 }
 
+/// Inlined foreign-key lookup (Compact Join) that projects a human-readable display column
+/// from a referenced foreign table directly into the current level without sprouting a child hierarchy.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CanvasInlinedLookup {
+    /// Local foreign-key column on this table (e.g. "customer_id").
+    pub local_fk_col: String,
+    /// Referenced foreign table (e.g. "customers").
+    pub foreign_table: String,
+    /// Target primary key column on foreign table (e.g. "id").
+    pub foreign_pk_col: String,
+    /// Target column to display (e.g. "company_name").
+    pub display_col: String,
+    /// Output alias name (e.g. "customer_name").
+    pub alias: String,
+}
+
 /// Nested child relation in a perspective (e.g. `Orders` under `Customers`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CanvasNestedRelation {
@@ -129,6 +145,9 @@ pub struct CanvasNestedRelation {
     pub is_reverse: bool,
     /// Projected columns from child table.
     pub columns: Vec<CanvasColumn>,
+    /// Inlined foreign-key lookups for this relation level.
+    #[serde(default)]
+    pub inlined_lookups: Vec<CanvasInlinedLookup>,
     /// Recursive nested relations (e.g. `OrderItems` under `Orders`).
     #[serde(default)]
     pub nested_relations: Vec<CanvasNestedRelation>,
@@ -149,6 +168,9 @@ pub struct CanvasSpec {
     pub root_table: String,
     /// Projected columns on root table.
     pub columns: Vec<CanvasColumn>,
+    /// Root-level inlined foreign-key lookups (Compact Joins).
+    #[serde(default)]
+    pub inlined_lookups: Vec<CanvasInlinedLookup>,
     /// Nested child relations.
     #[serde(default)]
     pub nested_relations: Vec<CanvasNestedRelation>,
@@ -293,6 +315,9 @@ impl CanvasCompiler {
         for sort in &spec.sort {
             validate_identifier(&sort.column)?;
         }
+        for lookup in &spec.inlined_lookups {
+            Self::validate_inlined_lookup(lookup)?;
+        }
         for rel in &spec.nested_relations {
             Self::validate_nested_relation(rel)?;
         }
@@ -310,6 +335,9 @@ impl CanvasCompiler {
                 validate_identifier(alias)?;
             }
         }
+        for lookup in &rel.inlined_lookups {
+            Self::validate_inlined_lookup(lookup)?;
+        }
         for agg in &rel.aggregations {
             validate_identifier(&agg.target_col)?;
             validate_identifier(&agg.alias)?;
@@ -323,6 +351,15 @@ impl CanvasCompiler {
         for child in &rel.nested_relations {
             Self::validate_nested_relation(child)?;
         }
+        Ok(())
+    }
+
+    fn validate_inlined_lookup(lookup: &CanvasInlinedLookup) -> Result<(), DatabaseCraftError> {
+        validate_identifier(&lookup.local_fk_col)?;
+        validate_identifier(&lookup.foreign_table)?;
+        validate_identifier(&lookup.foreign_pk_col)?;
+        validate_identifier(&lookup.display_col)?;
+        validate_identifier(&lookup.alias)?;
         Ok(())
     }
 
@@ -342,6 +379,12 @@ impl CanvasCompiler {
             let alias = col.alias.as_deref().unwrap_or(&col.name);
             let quoted_alias = quote_ident(alias)?;
             select_clauses.push(format!("{root_alias}.{quoted_col} AS {quoted_alias}"));
+        }
+
+        // 1b. Inlined foreign-key lookups (Compact Joins)
+        for (idx, lookup) in spec.inlined_lookups.iter().enumerate() {
+            let lookup_sql = Self::compile_inlined_lookup(lookup, root_alias, idx)?;
+            select_clauses.push(lookup_sql);
         }
 
         // If no columns were explicitly chosen, default to selecting all columns via root.*
@@ -454,6 +497,24 @@ impl CanvasCompiler {
         }
     }
 
+    fn compile_inlined_lookup(
+        lookup: &CanvasInlinedLookup,
+        parent_alias: &str,
+        idx: usize,
+    ) -> Result<String, DatabaseCraftError> {
+        Self::validate_inlined_lookup(lookup)?;
+        let quoted_table = quote_ident(&lookup.foreign_table)?;
+        let quoted_display = quote_ident(&lookup.display_col)?;
+        let quoted_foreign_pk = quote_ident(&lookup.foreign_pk_col)?;
+        let quoted_local_fk = quote_ident(&lookup.local_fk_col)?;
+        let quoted_alias = quote_ident(&lookup.alias)?;
+        let lookup_alias = format!("inline_{idx}");
+
+        Ok(format!(
+            "(SELECT {lookup_alias}.{quoted_display} FROM {quoted_table} AS {lookup_alias} WHERE {lookup_alias}.{quoted_foreign_pk} = {parent_alias}.{quoted_local_fk}) AS {quoted_alias}"
+        ))
+    }
+
     fn compile_nested_relation(
         rel: &CanvasNestedRelation,
         parent_alias: &str,
@@ -474,6 +535,19 @@ impl CanvasCompiler {
             let key = col.alias.as_deref().unwrap_or(&col.name);
             let quoted_col = quote_ident(&col.name)?;
             json_obj_pairs.push(format!("'{key}', {child_alias}.{quoted_col}"));
+        }
+
+        // 1b. Inlined lookups for child records
+        for (l_idx, lookup) in rel.inlined_lookups.iter().enumerate() {
+            let quoted_table = quote_ident(&lookup.foreign_table)?;
+            let quoted_display = quote_ident(&lookup.display_col)?;
+            let quoted_foreign_pk = quote_ident(&lookup.foreign_pk_col)?;
+            let quoted_local_fk = quote_ident(&lookup.local_fk_col)?;
+            let l_alias = format!("{child_alias}_inl_{l_idx}");
+            let subquery = format!(
+                "(SELECT {l_alias}.{quoted_display} FROM {quoted_table} AS {l_alias} WHERE {l_alias}.{quoted_foreign_pk} = {child_alias}.{quoted_local_fk})"
+            );
+            json_obj_pairs.push(format!("'{}', {subquery}", lookup.alias));
         }
 
         // 2. Child aggregations
@@ -556,6 +630,19 @@ impl CanvasCompiler {
             json_obj_pairs.push(format!("'{key}', {child_alias}.{quoted_col}"));
         }
 
+        // Inlined lookups for recursive JSON object
+        for (l_idx, lookup) in rel.inlined_lookups.iter().enumerate() {
+            let quoted_table = quote_ident(&lookup.foreign_table)?;
+            let quoted_display = quote_ident(&lookup.display_col)?;
+            let quoted_foreign_pk = quote_ident(&lookup.foreign_pk_col)?;
+            let quoted_local_fk = quote_ident(&lookup.local_fk_col)?;
+            let l_alias = format!("{child_alias}_inl_{l_idx}");
+            let subquery = format!(
+                "(SELECT {l_alias}.{quoted_display} FROM {quoted_table} AS {l_alias} WHERE {l_alias}.{quoted_foreign_pk} = {child_alias}.{quoted_local_fk})"
+            );
+            json_obj_pairs.push(format!("'{}', {subquery}", lookup.alias));
+        }
+
         for (idx, sub) in rel.nested_relations.iter().enumerate() {
             let sub_alias = format!("{child_alias}_{idx}");
             let sub_sql = Self::compile_nested_relation_json(sub, child_alias, &sub_alias)?;
@@ -617,4 +704,57 @@ impl CanvasCompiler {
             "compiled_sql": sql,
         }))
     }
+}
+
+/// Heuristic suggesting a human-readable display column for a table (e.g. for inlining foreign keys).
+pub fn suggest_display_column(
+    store: &DatabaseStore,
+    table_name: &str,
+) -> Result<String, DatabaseCraftError> {
+    validate_identifier(table_name)?;
+    let schema = store
+        .table_schema(table_name)
+        .map_err(|e| DatabaseCraftError::Schema(e.to_string()))?;
+
+    let candidates = [
+        "company_name",
+        "name",
+        "title",
+        "label",
+        "description",
+        "code",
+        "username",
+        "email",
+    ];
+
+    for candidate in candidates {
+        if let Some(col) = schema
+            .columns
+            .iter()
+            .find(|c| c.name.eq_ignore_ascii_case(candidate))
+        {
+            return Ok(col.name.clone());
+        }
+    }
+
+    // Fallback 1: First non-PK TEXT column
+    if let Some(col) = schema
+        .columns
+        .iter()
+        .find(|c| !c.pk && c.data_type.to_uppercase().contains("TEXT"))
+    {
+        return Ok(col.name.clone());
+    }
+
+    // Fallback 2: First non-PK column
+    if let Some(col) = schema.columns.iter().find(|c| !c.pk) {
+        return Ok(col.name.clone());
+    }
+
+    // Fallback 3: First column or "id"
+    Ok(schema
+        .columns
+        .first()
+        .map(|c| c.name.clone())
+        .unwrap_or_else(|| "id".to_string()))
 }

@@ -65,6 +65,7 @@ pub const CMD_DB_BLUEPRINTS: &str = "db.blueprints";
 pub const CMD_CANVAS_QUERY: &str = "canvas.query";
 pub const CMD_CANVAS_COMPILE: &str = "canvas.compile_sql";
 pub const CMD_SCHEMA_RELATIONS: &str = "db.schema_relations";
+pub const CMD_DB_UPDATE_CELL: &str = "db.update_cell";
 pub const CMD_NOTIFICATIONS_LIST: &str = "notifications.list";
 pub const CMD_NOTIFICATION_ACK: &str = "notifications.ack";
 pub const CMD_WATCHDOG_CHECK: &str = "watchdog.check";
@@ -195,6 +196,13 @@ pub enum Command {
     },
     SchemaRelations {
         table: String,
+    },
+    UpdateCell {
+        table: String,
+        pk_col: String,
+        pk_val: Value,
+        col: String,
+        new_val: Value,
     },
     NotificationsList {
         severity: Option<notifications::NotificationSeverity>,
@@ -760,6 +768,61 @@ fn execute_dispatch(cmd: Command, store: &DatabaseStore) -> Result<Value, Databa
                 "reverse_relations": relations.reverse_relations,
             }))
         }
+        Command::UpdateCell {
+            table,
+            pk_col,
+            pk_val,
+            col,
+            new_val,
+        } => {
+            validate_identifier(&table)?;
+            validate_identifier(&pk_col)?;
+            validate_identifier(&col)?;
+
+            let affected = store
+                .update_cell(&table, &pk_col, &pk_val, &col, &new_val)
+                .map_err(|e| DatabaseCraftError::Storage(e.to_string()))?;
+
+            // Record mutation for quiescence tracker
+            notifications::global_notification_bus().record_mutation(&table);
+
+            // Log info to Craft Notification Bus
+            let now_secs = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let notif = notifications::CraftNotification {
+                id: format!("edit-{table}-{now_secs}"),
+                timestamp: format!("{now_secs}"),
+                app: APP_NAME.to_string(),
+                severity: notifications::NotificationSeverity::Info,
+                category: notifications::NotificationCategory::MutationAudit,
+                title: format!("Cell Updated in {table}"),
+                message: format!("Cell updated in '{table}.{col}' for row {pk_col}={pk_val}"),
+                source_entity: Some(format!("table:{table}")),
+                metrics: json!({
+                    "table": table,
+                    "pk_col": pk_col,
+                    "pk_val": pk_val,
+                    "col": col,
+                    "new_val": new_val,
+                    "rows_affected": affected,
+                }),
+                acknowledged: false,
+                suggested_action: None,
+            };
+            notifications::global_notification_bus().emit(notif);
+
+            Ok(json!({
+                "success": true,
+                "table": table,
+                "pk_col": pk_col,
+                "pk_val": pk_val,
+                "col": col,
+                "new_val": new_val,
+                "rows_affected": affected,
+            }))
+        }
         Command::NotificationsList {
             severity,
             unacknowledged_only,
@@ -1012,6 +1075,18 @@ pub fn command_registry() -> Vec<CommandDescriptor> {
             label: "Discover Schema Relations".to_string(),
             description: "Inspect forward (N:1) and reverse (1:N) foreign-key links for a table for perspective sprouting".to_string(),
             params: json!({ "table": "string" }),
+        },
+        CommandDescriptor {
+            id: CMD_DB_UPDATE_CELL.to_string(),
+            label: "Update Table Cell".to_string(),
+            description: "Atomically update a single cell by primary key with validation, mutation tracking, and notification bus event".to_string(),
+            params: json!({
+                "table": "string",
+                "pk_col": "string",
+                "pk_val": "any",
+                "col": "string",
+                "new_val": "any"
+            }),
         },
         CommandDescriptor {
             id: CMD_NOTIFICATIONS_LIST.to_string(),

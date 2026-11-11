@@ -49,6 +49,7 @@ pub enum NotificationCategory {
     IntegrityDegraded,
     PerformanceStall,
     SecurityFence,
+    MutationAudit,
 }
 
 impl NotificationCategory {
@@ -59,6 +60,7 @@ impl NotificationCategory {
             NotificationCategory::IntegrityDegraded => "integrity_degraded",
             NotificationCategory::PerformanceStall => "performance_stall",
             NotificationCategory::SecurityFence => "security_fence",
+            NotificationCategory::MutationAudit => "mutation_audit",
         }
     }
 }

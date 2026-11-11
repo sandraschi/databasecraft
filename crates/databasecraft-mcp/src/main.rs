@@ -242,6 +242,23 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Atomically update a single table cell by primary key
+    UpdateCell {
+        #[arg(long)]
+        table: String,
+        #[arg(long)]
+        pk_col: String,
+        #[arg(long)]
+        pk_val: String,
+        #[arg(long)]
+        col: String,
+        #[arg(long)]
+        new_val: String,
+        #[arg(long)]
+        db: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
     /// List operational health notifications, disk space warnings, and quiescence anomalies
     Notifications {
         #[arg(long)]
@@ -881,6 +898,39 @@ fn main() {
                 Err(e) => eprintln!("Failed to parse CanvasSpec JSON: {e}"),
             }
         }
+        Commands::UpdateCell {
+            table,
+            pk_col,
+            pk_val,
+            col,
+            new_val,
+            db,
+            json,
+        } => {
+            let store = open_store(db.as_deref());
+            let parsed_pk: Value = serde_json::from_str(&pk_val).unwrap_or(Value::String(pk_val));
+            let parsed_new: Value = serde_json::from_str(&new_val).unwrap_or(Value::String(new_val));
+            let res = rt.block_on(dispatch(
+                Command::UpdateCell {
+                    table,
+                    pk_col,
+                    pk_val: parsed_pk,
+                    col,
+                    new_val: parsed_new,
+                },
+                &store,
+            ));
+            if json {
+                println!("{res}");
+            } else if res["success"] == true {
+                println!(
+                    "Cell updated successfully: {}.{} for row {}={} (rows affected: {})",
+                    res["table"], res["col"], res["pk_col"], res["pk_val"], res["rows_affected"]
+                );
+            } else {
+                eprintln!("Update Error: {}", res["error"]);
+            }
+        }
         Commands::Notifications { unack, json } => {
             let notifs = databasecraft_core::notifications::global_notification_bus().list(None, unack);
             if json {
@@ -1408,6 +1458,21 @@ pub fn tools_list() -> Value {
                 "type": "object",
                 "properties": {}
             }
+        },
+        {
+            "name": "db_update_cell",
+            "description": "Atomically update a single table cell identified by its primary key with validation, mutation tracking, and notification bus event",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "table": { "type": "string", "description": "Database table name" },
+                    "pk_col": { "type": "string", "description": "Primary key column name (e.g. id)" },
+                    "pk_val": { "description": "Primary key value of the row to update" },
+                    "col": { "type": "string", "description": "Target column name to update" },
+                    "new_val": { "description": "New value to write to the cell" }
+                },
+                "required": ["table", "pk_col", "pk_val", "col", "new_val"]
+            }
         }
     ])
 }
@@ -1642,6 +1707,23 @@ pub fn call_tool(rt: &Runtime, store: &DatabaseStore, name: &str, args: &Value) 
         }
         "db_watchdog_check" => {
             rt.block_on(dispatch(Command::WatchdogCheck, store))
+        }
+        "db_update_cell" => {
+            let table = args["table"].as_str().unwrap_or("").to_string();
+            let pk_col = args["pk_col"].as_str().unwrap_or("").to_string();
+            let pk_val = args.get("pk_val").cloned().unwrap_or(Value::Null);
+            let col = args["col"].as_str().unwrap_or("").to_string();
+            let new_val = args.get("new_val").cloned().unwrap_or(Value::Null);
+            rt.block_on(dispatch(
+                Command::UpdateCell {
+                    table,
+                    pk_col,
+                    pk_val,
+                    col,
+                    new_val,
+                },
+                store,
+            ))
         }
         unknown => json!({ "success": false, "error": format!("Unknown tool '{unknown}'") }),
     }

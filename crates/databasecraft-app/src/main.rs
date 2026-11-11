@@ -431,6 +431,99 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn test_canvas_in_place_cell_edit_and_undo_stack() -> Result<(), Box<dyn std::error::Error>> {
+        let store = Arc::new(DatabaseStore::open_in_memory()?);
+        let rt = Arc::new(Runtime::new()?);
+
+        // Seed Northwind dataset
+        rt.block_on(dispatch(
+            Command::SeedDemo {
+                name: "northwind".to_string(),
+            },
+            &store,
+        ));
+
+        let mut gui = gui::DatabaseCraftGui::new(store.clone(), rt.clone());
+        gui.selected_table = Some("customers".to_string());
+        gui.init_canvas_for_table("customers");
+
+        assert!(gui.canvas_result.is_some());
+
+        // 1. Simulate in-place cell edit
+        gui.active_cell_edit = Some(gui::ActiveCellEdit {
+            table: "customers".to_string(),
+            pk_col: "id".to_string(),
+            pk_val: serde_json::json!(1),
+            col: "company_name".to_string(),
+            initial_str: "Tokyo Traders".to_string(),
+            edit_str: "Tokyo Global Tech".to_string(),
+        });
+
+        gui.commit_cell_edit();
+        assert_eq!(gui.cell_undo_stack.len(), 1);
+        assert_eq!(gui.cell_redo_stack.len(), 0);
+
+        // Verify database value changed
+        let qr = store.query("SELECT company_name FROM customers WHERE id = 1;")?;
+        assert_eq!(
+            qr.rows.first().and_then(|r| r.first()),
+            Some(&serde_json::Value::String("Tokyo Global Tech".to_string()))
+        );
+
+        // 2. Test Undo
+        gui.undo_cell_mutation();
+        assert_eq!(gui.cell_undo_stack.len(), 0);
+        assert_eq!(gui.cell_redo_stack.len(), 1);
+
+        let qr_undo = store.query("SELECT company_name FROM customers WHERE id = 1;")?;
+        assert_eq!(
+            qr_undo.rows.first().and_then(|r| r.first()),
+            Some(&serde_json::Value::String("Tokyo Traders".to_string()))
+        );
+
+        // 3. Test Redo
+        gui.redo_cell_mutation();
+        assert_eq!(gui.cell_undo_stack.len(), 1);
+        assert_eq!(gui.cell_redo_stack.len(), 0);
+
+        let qr_redo = store.query("SELECT company_name FROM customers WHERE id = 1;")?;
+        assert_eq!(
+            qr_redo.rows.first().and_then(|r| r.first()),
+            Some(&serde_json::Value::String("Tokyo Global Tech".to_string()))
+        );
+
+        // 4. Test Compact Joins / Foreign Key Inlining on orders table
+        gui.selected_table = Some("orders".to_string());
+        gui.init_canvas_for_table("orders");
+        gui.inline_foreign_key("customers");
+
+        let spec = gui.canvas_spec.as_ref().ok_or("missing canvas_spec")?;
+        assert_eq!(spec.inlined_lookups.len(), 1);
+        assert_eq!(spec.inlined_lookups[0].foreign_table, "customers");
+        assert_eq!(spec.inlined_lookups[0].display_col, "company_name");
+
+        let res = gui.canvas_result.as_ref().ok_or("missing canvas_result")?;
+        assert_eq!(res["success"], true);
+
+        // 5. Test Interactive Canvas Column Sorting
+        gui.toggle_canvas_sort("order_date");
+        let spec_sorted = gui.canvas_spec.as_ref().ok_or("missing canvas_spec")?;
+        assert_eq!(spec_sorted.sort.len(), 1);
+        assert_eq!(spec_sorted.sort[0].column, "order_date");
+        assert!(!spec_sorted.sort[0].descending); // ASC
+
+        gui.toggle_canvas_sort("order_date");
+        let spec_desc = gui.canvas_spec.as_ref().ok_or("missing canvas_spec")?;
+        assert!(spec_desc.sort[0].descending); // DESC
+
+        gui.toggle_canvas_sort("order_date");
+        let spec_none = gui.canvas_spec.as_ref().ok_or("missing canvas_spec")?;
+        assert_eq!(spec_none.sort.len(), 0); // Removed
+
+        Ok(())
+    }
+
     #[tokio::test]
     async fn test_control_channel_tcp_loopback() -> Result<(), Box<dyn std::error::Error>> {
         let store = Arc::new(DatabaseStore::open_in_memory()?);

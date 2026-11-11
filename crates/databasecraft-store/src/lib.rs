@@ -223,6 +223,45 @@ impl DatabaseStore {
         })
     }
 
+    /// Update a single cell identifying the target row by its primary key column.
+    pub fn update_cell(
+        &self,
+        table: &str,
+        pk_col: &str,
+        pk_val: &serde_json::Value,
+        col: &str,
+        new_val: &serde_json::Value,
+    ) -> Result<usize, StoreError> {
+        if !table.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            return Err(StoreError::InvalidInput(format!("invalid table name '{table}'")));
+        }
+        if !pk_col.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            return Err(StoreError::InvalidInput(format!("invalid primary key column '{pk_col}'")));
+        }
+        if !col.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            return Err(StoreError::InvalidInput(format!("invalid target column '{col}'")));
+        }
+
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Lock(e.to_string()))?;
+
+        let sql = format!("UPDATE \"{table}\" SET \"{col}\" = ?1 WHERE \"{pk_col}\" = ?2;");
+        let mut stmt = conn.prepare(&sql)?;
+        let val_param = json_to_sqlite_value(new_val);
+        let pk_param = json_to_sqlite_value(pk_val);
+
+        let rows = stmt.execute(rusqlite::params![val_param, pk_param])?;
+        Ok(rows)
+    }
+
+    /// Discover the primary key column name for a given table, if one exists.
+    pub fn get_primary_key(&self, table_name: &str) -> Result<Option<String>, StoreError> {
+        let schema = self.table_schema(table_name)?;
+        Ok(schema.columns.into_iter().find(|c| c.pk).map(|c| c.name))
+    }
+
     /// List all non-internal user tables in the database.
     pub fn list_tables(&self) -> Result<Vec<String>, StoreError> {
         let conn = self
@@ -824,9 +863,58 @@ impl DatabaseStore {
     }
 }
 
+/// Convert a serde_json::Value to a rusqlite::types::Value.
+pub fn json_to_sqlite_value(val: &serde_json::Value) -> rusqlite::types::Value {
+    match val {
+        serde_json::Value::Null => rusqlite::types::Value::Null,
+        serde_json::Value::Bool(b) => rusqlite::types::Value::Integer(if *b { 1 } else { 0 }),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                rusqlite::types::Value::Integer(i)
+            } else if let Some(f) = n.as_f64() {
+                rusqlite::types::Value::Real(f)
+            } else {
+                rusqlite::types::Value::Text(n.to_string())
+            }
+        }
+        serde_json::Value::String(s) => rusqlite::types::Value::Text(s.clone()),
+        _ => rusqlite::types::Value::Text(val.to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_update_cell_and_get_primary_key() -> Result<(), Box<dyn std::error::Error>> {
+        let store = DatabaseStore::open_in_memory()?;
+        store.execute(
+            "CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT, balance REAL, active INTEGER);
+             INSERT INTO users (id, username, balance, active) VALUES (1, 'alice', 100.50, 1);",
+        )?;
+
+        let pk = store.get_primary_key("users")?;
+        assert_eq!(pk, Some("id".to_string()));
+
+        let affected = store.update_cell(
+            "users",
+            "id",
+            &serde_json::json!(1),
+            "username",
+            &serde_json::json!("alice_updated"),
+        )?;
+        assert_eq!(affected, 1);
+
+        let qr = store.query("SELECT username FROM users WHERE id = 1;")?;
+        assert_eq!(qr.rows.len(), 1);
+        assert_eq!(
+            qr.rows.first().and_then(|r| r.first()),
+            Some(&serde_json::Value::String("alice_updated".to_string()))
+        );
+
+        Ok(())
+    }
 
     #[test]
     fn test_text_embedding_properties() -> Result<(), Box<dyn std::error::Error>> {

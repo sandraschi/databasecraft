@@ -239,7 +239,7 @@ async fn test_hybrid_rag_search() -> Result<(), Box<dyn std::error::Error>> {
 #[tokio::test]
 async fn test_command_registry_and_describe() -> Result<(), Box<dyn std::error::Error>> {
     let registry = databasecraft_core::command_registry();
-    assert_eq!(registry.len(), 36);
+    assert_eq!(registry.len(), 37);
 
     for cmd in &registry {
         assert!(!cmd.id.is_empty());
@@ -751,6 +751,7 @@ async fn test_canvas_compile_and_query_hierarchy() -> Result<(), Box<dyn std::er
             CanvasColumn::new("id"),
             CanvasColumn::new("name"),
         ],
+        inlined_lookups: vec![],
         nested_relations: vec![CanvasNestedRelation {
             relation_name: "products".to_string(),
             target_table: "products".to_string(),
@@ -762,6 +763,7 @@ async fn test_canvas_compile_and_query_hierarchy() -> Result<(), Box<dyn std::er
                 CanvasColumn::new("title"),
                 CanvasColumn::new("price"),
             ],
+            inlined_lookups: vec![],
             nested_relations: vec![],
             aggregations: vec![],
             filters: vec![],
@@ -887,6 +889,7 @@ async fn test_canvas_hostile_input_fence() -> Result<(), Box<dyn std::error::Err
     let bad_spec = CanvasSpec {
         root_table: "categories; DROP TABLE products;--".to_string(),
         columns: vec![CanvasColumn::new("id")],
+        inlined_lookups: vec![],
         nested_relations: vec![],
         aggregations: vec![],
         filters: vec![],
@@ -1002,6 +1005,114 @@ async fn test_watchdog_quiescence_anomaly() -> Result<(), Box<dyn std::error::Er
     let alert = quiescence_alert.ok_or("missing quiescence alert")?;
     assert!(alert["title"].as_str().unwrap_or("").contains("Quiescence Anomaly"));
     assert!(alert["metrics"]["mutations_last_minute"].as_u64().unwrap_or(0) >= 15);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_cell_update_dispatch_and_watchdog() -> Result<(), Box<dyn std::error::Error>> {
+    let store = DatabaseStore::open_in_memory()?;
+    dispatch(
+        Command::SeedDemo {
+            name: "ecommerce".to_string(),
+        },
+        &store,
+    )
+    .await;
+
+    // Mutate a cell via Command::UpdateCell
+    let res = dispatch(
+        Command::UpdateCell {
+            table: "categories".to_string(),
+            pk_col: "id".to_string(),
+            pk_val: serde_json::json!(1),
+            col: "name".to_string(),
+            new_val: serde_json::json!("Super Electronics"),
+        },
+        &store,
+    )
+    .await;
+
+    assert_eq!(res["success"], true);
+    assert_eq!(res["rows_affected"], 1);
+
+    // Verify raw query reflects the atomic write
+    let qr = store.query("SELECT name FROM categories WHERE id = 1;")?;
+    assert_eq!(
+        qr.rows.first().and_then(|r| r.first()),
+        Some(&serde_json::Value::String("Super Electronics".to_string()))
+    );
+
+    // Verify hostile input rejection on table and col
+    let bad_res = dispatch(
+        Command::UpdateCell {
+            table: "categories; DROP TABLE users;--".to_string(),
+            pk_col: "id".to_string(),
+            pk_val: serde_json::json!(1),
+            col: "name".to_string(),
+            new_val: serde_json::json!("Hacked"),
+        },
+        &store,
+    )
+    .await;
+    assert_eq!(bad_res["success"], false);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_canvas_inlined_lookup_compact_join() -> Result<(), Box<dyn std::error::Error>> {
+    let store = DatabaseStore::open_in_memory()?;
+    dispatch(
+        Command::SeedDemo {
+            name: "northwind".to_string(),
+        },
+        &store,
+    )
+    .await;
+
+    use databasecraft_core::canvas::{
+        suggest_display_column, CanvasColumn, CanvasInlinedLookup, CanvasSpec,
+    };
+
+    // Auto-detect display column for customers table
+    let display_col = suggest_display_column(&store, "customers")?;
+    assert_eq!(display_col, "company_name");
+
+    // Perspective on orders with inlined customer company_name (Compact Join without sprouting sub-table)
+    let spec = CanvasSpec {
+        root_table: "orders".to_string(),
+        columns: vec![
+            CanvasColumn::new("id"),
+            CanvasColumn::new("customer_id"),
+            CanvasColumn::new("order_date"),
+        ],
+        inlined_lookups: vec![CanvasInlinedLookup {
+            local_fk_col: "customer_id".to_string(),
+            foreign_table: "customers".to_string(),
+            foreign_pk_col: "id".to_string(),
+            display_col: "company_name".to_string(),
+            alias: "customer_name".to_string(),
+        }],
+        nested_relations: vec![],
+        aggregations: vec![],
+        filters: vec![],
+        sort: vec![],
+        limit: Some(10),
+        offset: None,
+    };
+
+    let res = dispatch(Command::CanvasQuery { spec }, &store).await;
+    assert_eq!(res["success"], true);
+    let data = res["result"]["data"].as_array().ok_or("missing data")?;
+    assert!(!data.is_empty());
+
+    // Verify first order row has the inlined customer_name
+    let first_row = &data[0];
+    assert!(first_row.get("customer_name").is_some());
+    let cust_name = first_row["customer_name"].as_str().unwrap_or("");
+    assert!(!cust_name.is_empty());
+    assert_ne!(cust_name, "NULL");
 
     Ok(())
 }
