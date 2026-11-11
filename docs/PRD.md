@@ -120,6 +120,19 @@ Following the **ArtCraft Containment Harness** ([`CONTAINMENT_AND_CRATES.md`](..
    * **Cross-Craft Export**: Live data merge generation for DesignCraft, DeckCraft, WordCraft, GridCraft, and PdfCraft.
    * **🚨 Alerts & Watchdog**: Proactive CTO operations dashboard with 3-column diagnostic metrics, quiescence churn violation feed, and 1-click remediation actions (Vacuum, Doctor, Table Review).
 4. **Zero-Glitch Performance**: Immediate-mode GPU rendering at 60–144 FPS with sub-10ms UI latency and sub-30MB baseline memory footprint.
+5. **Craft Menu Bar Standard & Pattern 2 Separation**:
+   - In accordance with [`CRAFT_MENU_BAR_STANDARD.md`](../../mcp-central-docs/standards/rust-artcraft/CRAFT_MENU_BAR_STANDARD.md):
+   - **Pattern 2 (Viewport-Centric Workstation)**: Persistent Relational Canvas / Matrix Viewport. Workspace navigation buttons on the top row serve as accelerators into the `View` menu. To add a new inspector or perspective, expose it under `View` / `Window` toggles and sidebar toolbox, wired to `Command::dispatch`.
+   - **Top Menu Bar Hierarchy**:
+     - `File`: New Database (`Ctrl+N`), Open Database (`Ctrl+O`), Open Recent ▸, Save Perspective (`Ctrl+S`), Save As... (`Ctrl+Shift+S`), Export SQL / CSV / Parquet (`Ctrl+E`), Close Database (`Ctrl+W`), Quit (`Ctrl+Q`).
+     - `Edit`: Undo (`Ctrl+Z`), Redo (`Ctrl+Y`), Cut (`Ctrl+X`), Copy (`Ctrl+C`), Paste (`Ctrl+V`), Select All (`Ctrl+A`), Preferences (`Ctrl+,`).
+     - `View`: Table Grid, Relational Canvas, SQL & NLQ Console, Schema ERD, RAG & Vectors, Alerts & Watchdog, Density (`Compact`/`Standard`/`Relaxed`), Theme (`Dark`/`Light`).
+     - `Insert`: Add Table, Add Column, Add Foreign Key Relation, Sprout Subquery, Insert Row.
+     - `Modify`: Edit Schema, Rename Column, Format Cells, Rebuild Indexes, Invert Perspective.
+     - `Commands`: Execute SQL (`Ctrl+Enter`), Run Hybrid RAG Search, Profile Data Cardinality, Run Quiescence Doctor, Vacuum WAL.
+     - `Window`: Reset Panel Layout, Toolbox, Relational Viewport, Inspector Drawer, Notification Alerts Dock.
+     - `Help` (Mandatory 5-Dialog Suite): `Command Palette...` (`Ctrl+K`), `Keyboard Shortcuts...` (`F1`), `Project Files & Docs...`, `Licenses & Notices...`, `About DatabaseCraft`.
+   - **Behavioral Mechanics**: `switch_on_hover` between top-level menus, zero-unsafe immediate-mode rendering, and headless `--smoke` parity.
 
 ---
 
