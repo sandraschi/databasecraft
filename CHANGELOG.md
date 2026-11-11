@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.7.0] - 2026-11-11
+
+### Added
+- **In-Place Cell Editing & Multi-Step Undo/Redo Stack**:
+  - Double-clicking any cell in the Canvas continuous matrix grid switches into an active `egui::TextEdit` input with `[✓ Commit]` (`Enter`) and `[✖ Cancel]` (`Esc`).
+  - Atomic primary key write-back via `Command::UpdateCell` executing parameterized `UPDATE <table> SET <col> = ? WHERE <pk> = ?`.
+  - Multi-step Undo (`Ctrl+Z`) and Redo (`Ctrl+Y`) stack integrated directly into the Canvas top toolbar and hotkeys.
+  - Cell mutations automatically log to the quiescent `MutationTracker`, triggering the CTO Watchdog and emitting `NotificationCategory::MutationAudit` events on the generalized Craft Notification Bus.
+  - Added CLI subcommand `update-cell` and MCP tool `db_update_cell`.
+- **Compact Joins (Foreign Key Inlining)**:
+  - Added `CanvasInlinedLookup` to `CanvasSpec` and `CanvasNestedRelation`.
+  - Allows inlining referenced human-readable labels (e.g. `company_name` for `customer_id` in orders) as scalar subqueries without sprouting entire child/parent table column hierarchies.
+  - Auto-suggests candidate human-readable display columns (`name`, `title`, `company_name`, `label`).
+  - UI offers 1-click `+ 🏷️ Inline: <rel>` buttons in the Relations Bar, rendering inlined lookups in a dedicated Lilac Header Band with removal pills (`✖`).
+  - Evaluates in sub-milliseconds with zero Cartesian row inflation.
+- **Interactive Tri-State Column Header Sorting**:
+  - Tri-state sorting (`ASC` -> `DESC` -> `None`) triggered by clicking column headers in the 2D Canvas Matrix.
+  - Visual glyph indicators (`▲` for ascending, `▼` for descending) directly in column headers.
+  - Recompiles the perspective AST and refetches data dynamically.
+- **Automated Tests**:
+  - Expanded test suite from 27 to 31 tests covering in-place cell editing, compact joins, primary key extraction, mutation auditing, and GUI undo/redo stacks.
+
 ## [0.6.0] - 2026-11-11
 
 ### Added

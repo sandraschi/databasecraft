@@ -97,6 +97,9 @@ Following the **ArtCraft Containment Harness** ([`CONTAINMENT_AND_CRATES.md`](..
 | **F26** | Continuous Spanned Spreadsheet Matrix | Unified 2D perspective table with multi-tier table ownership headers, 1px hairline cell dividers, zebra striping, and visual density controls (`Compact` 22px, `Standard` 28px, `Relaxed` 34px). | ✅ Complete |
 | **F27** | Typographic Smart Cell Auto-Formatter | In-cell type-aware formatting: currency commas (`$1,850.00`), delivery/billing status pill badges (`[DELIVERED]`, `[PROCESSING]`), tabular numeric alignment, and monospace dates. | ✅ Complete |
 | **F28** | Realistic Commercial Benchmark Dataset | Pre-packaged Northwind Traders international orders schema (`customers -> orders -> order_items`) demonstrating 3-tier deep subquery sprouting and live rollups. | ✅ Complete |
+| **F29** | In-Place Cell Editing & Undo/Redo | Atomic double-click cell mutation with primary key write-back, quiescent mutation tracking, Craft Notification Bus events, and multi-step Undo/Redo stack. | ✅ Complete |
+| **F30** | Compact Joins (Foreign Key Inlining) | Inlines referenced human-readable labels (e.g. `company_name` for `customer_id`) via optimized scalar subqueries without sprouting child table hierarchies. | ✅ Complete |
+| **F31** | Interactive Canvas Header Sorting | Tri-state column header sorting (`ASC` / `DESC` / `None`) with visual indicators (`▲`, `▼`), recompiling the perspective AST in sub-milliseconds. | ✅ Complete |
 
 ---
 
