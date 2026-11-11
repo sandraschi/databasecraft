@@ -346,6 +346,10 @@ pub struct DatabaseCraftGui {
     pub active_cell_edit: Option<ActiveCellEdit>,
     pub cell_undo_stack: Vec<CellMutation>,
     pub cell_redo_stack: Vec<CellMutation>,
+    // Interactive column resizing & drag-and-drop reordering
+    pub canvas_column_widths: std::collections::HashMap<String, f32>,
+    pub canvas_dragged_col: Option<String>,
+    pub canvas_drop_target: Option<(String, bool)>,
 }
 
 impl DatabaseCraftGui {
@@ -422,6 +426,9 @@ impl DatabaseCraftGui {
             active_cell_edit: None,
             cell_undo_stack: Vec::new(),
             cell_redo_stack: Vec::new(),
+            canvas_column_widths: std::collections::HashMap::new(),
+            canvas_dragged_col: None,
+            canvas_drop_target: None,
         };
 
         app.refresh_notifications();
@@ -817,6 +824,7 @@ impl DatabaseCraftGui {
                     foreign_pk_col: r.target_col.clone(),
                     display_col,
                     alias: alias.clone(),
+                    width_px: None,
                 };
 
                 spec.inlined_lookups
@@ -1004,6 +1012,50 @@ impl DatabaseCraftGui {
                 .retain(|a| !a.alias.eq_ignore_ascii_case(alias));
         }
         self.run_canvas_query();
+    }
+
+    pub fn get_column_width(&self, col_key: &str) -> f32 {
+        if let Some(&w) = self.canvas_column_widths.get(col_key) {
+            return w;
+        }
+        if let Some(ref spec) = self.canvas_spec {
+            if let Some(c) = spec.columns.iter().find(|c| {
+                c.name.eq_ignore_ascii_case(col_key)
+                    || c.alias.as_deref().unwrap_or("").eq_ignore_ascii_case(col_key)
+            }) {
+                if let Some(w) = c.width_px {
+                    return w as f32;
+                }
+            }
+            if let Some(l) = spec.inlined_lookups.iter().find(|l| {
+                l.alias.eq_ignore_ascii_case(col_key)
+            }) {
+                if let Some(w) = l.width_px {
+                    return w as f32;
+                }
+            }
+        }
+        match self.canvas_density {
+            CanvasDensity::Compact => 110.0,
+            CanvasDensity::Standard => 135.0,
+            CanvasDensity::Relaxed => 160.0,
+        }
+    }
+
+    pub fn set_column_width(&mut self, col_key: &str, width: f32) {
+        let clamped = width.clamp(55.0, 800.0);
+        self.canvas_column_widths.insert(col_key.to_string(), clamped);
+        if let Some(ref mut spec) = self.canvas_spec {
+            spec.set_column_width(col_key, clamped.round() as u32);
+        }
+    }
+
+    pub fn reorder_canvas_column(&mut self, from_col: &str, to_col: &str, drop_after: bool) {
+        if let Some(ref mut spec) = self.canvas_spec {
+            if spec.reorder_columns(from_col, to_col, drop_after) {
+                self.run_canvas_query();
+            }
+        }
     }
 
     pub fn run_rag_search(&mut self) {
@@ -1550,6 +1602,11 @@ impl eframe::App for DatabaseCraftGui {
                     {
                         self.redo_cell_mutation();
                     }
+                    if !self.canvas_column_widths.is_empty()
+                        && ui.button("⇲ Reset Widths").clicked()
+                    {
+                        self.canvas_column_widths.clear();
+                    }
                 });
 
                 // Sprout bar: Forward and reverse relationships discovered
@@ -1795,6 +1852,43 @@ impl eframe::App for DatabaseCraftGui {
                             let mut start_cell_edit: Option<(String, String, Value, String, String)> =
                                 None;
                             let mut toggle_sort_col: Option<String> = None;
+                            let mut reorder_action: Option<(String, String, bool)> = None;
+                            let mut resize_action: Option<(String, f32)> = None;
+                            let mut reset_action: Option<String> = None;
+                            let mut start_drag_col: Option<String> = None;
+                            let mut update_drop_target: Option<Option<(String, bool)>> = None;
+                            let mut clear_drag = false;
+
+                            let mut col_widths_map = std::collections::HashMap::new();
+                            for c in &root_cols {
+                                col_widths_map.insert(c.clone(), self.get_column_width(c));
+                            }
+                            for l in &inlined_lookups {
+                                col_widths_map.insert(l.alias.clone(), self.get_column_width(&l.alias));
+                            }
+                            for r in &nested_rels {
+                                for c in &r.columns {
+                                    let k = format!("{}.{}", r.relation_name, c.alias.as_deref().unwrap_or(&c.name));
+                                    col_widths_map.insert(k.clone(), self.get_column_width(&k));
+                                }
+                            }
+                            for a in &rollups {
+                                col_widths_map.insert(a.alias.clone(), self.get_column_width(&a.alias));
+                            }
+
+                            let sort_map: std::collections::HashMap<String, &'static str> = self
+                                .canvas_spec
+                                .as_ref()
+                                .map(|s| {
+                                    s.sort
+                                        .iter()
+                                        .map(|si| (si.column.to_lowercase(), if si.descending { " ▼" } else { " ▲" }))
+                                        .collect()
+                                })
+                                .unwrap_or_default();
+
+                            let active_dragged_col = self.canvas_dragged_col.clone();
+                            let active_drop_target = self.canvas_drop_target.clone();
 
                             egui::ScrollArea::both().show(ui, |ui| {
                                 // Outer container with hairline borders
@@ -1895,6 +1989,10 @@ impl eframe::App for DatabaseCraftGui {
                                             }
                                         });
 
+                                        let header_h = min_row_h + 4.0;
+                                        let pointer_released = ui.input(|i| i.pointer.any_released());
+                                        let current_pointer_pos = ui.input(|i| i.pointer.hover_pos());
+
                                         // 2. TIER 2: Column Headers
                                         ui.horizontal(|ui| {
                                             ui.spacing_mut().item_spacing = Vec2::ZERO;
@@ -1906,128 +2004,327 @@ impl eframe::App for DatabaseCraftGui {
                                             );
 
                                             // Row index column header
+                                            let idx_w = 38.0;
                                             egui::Frame::new()
                                                 .fill(header_bg)
                                                 .stroke(border_stroke)
-                                                .inner_margin(egui::Margin::symmetric(8, 5))
+                                                .inner_margin(egui::Margin::symmetric(6, 4))
                                                 .show(ui, |ui| {
+                                                    ui.set_width(idx_w);
+                                                    ui.set_height(header_h);
                                                     ui.colored_label(muted_gray, "#");
                                                 });
 
-                                            // Root table column headers with interactive sorting
+                                            // Root table column headers with interactive sorting, resizing, and drag-and-drop reordering
                                             for col in &root_cols {
-                                                let sort_icon = self
-                                                    .canvas_spec
-                                                    .as_ref()
-                                                    .and_then(|s| {
-                                                        s.sort
-                                                            .iter()
-                                                            .find(|si| {
-                                                                si.column.eq_ignore_ascii_case(col)
-                                                            })
-                                                            .map(|si| {
-                                                                if si.descending {
-                                                                    " ▼"
-                                                                } else {
-                                                                    " ▲"
-                                                                }
-                                                            })
-                                                    })
-                                                    .unwrap_or("");
+                                                let col_width = col_widths_map.get(col).copied().unwrap_or(135.0);
+                                                let is_dragged = active_dragged_col.as_deref() == Some(col.as_str());
+                                                let sort_icon = sort_map.get(&col.to_lowercase()).copied().unwrap_or("");
 
-                                                egui::Frame::new()
-                                                    .fill(header_bg)
-                                                    .stroke(border_stroke)
-                                                    .inner_margin(egui::Margin::symmetric(
-                                                        pad.0, 5,
-                                                    ))
-                                                    .show(ui, |ui| {
-                                                        let btn_text = format!(
-                                                            "{}{sort_icon}",
-                                                            col.to_uppercase()
+                                                let bg_col = if is_dragged {
+                                                    Color32::from_rgb(30, 48, 64)
+                                                } else {
+                                                    header_bg
+                                                };
+
+                                                // Column Header Box
+                                                let (header_rect, header_resp) = ui.allocate_exact_size(
+                                                    Vec2::new(col_width, header_h),
+                                                    egui::Sense::click_and_drag(),
+                                                );
+
+                                                if let Some(ref dragged) = active_dragged_col {
+                                                    if dragged != col && header_resp.hovered() {
+                                                        let is_after = current_pointer_pos
+                                                            .map(|p| p.x > header_rect.center().x)
+                                                            .unwrap_or(false);
+                                                        update_drop_target = Some(Some((col.clone(), is_after)));
+                                                    }
+                                                }
+
+                                                if header_resp.drag_started() {
+                                                    start_drag_col = Some(col.clone());
+                                                }
+
+                                                if header_resp.dragged() {
+                                                    ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                                                }
+
+                                                if header_resp.clicked() && !header_resp.dragged() {
+                                                    toggle_sort_col = Some(col.clone());
+                                                }
+
+                                                ui.painter().rect_filled(header_rect, 0.0, bg_col);
+                                                ui.painter().rect_stroke(
+                                                    header_rect,
+                                                    0.0,
+                                                    egui::Stroke::new(1.0, Color32::from_rgb(38, 42, 50)),
+                                                    egui::StrokeKind::Inside,
+                                                );
+
+                                                let label_color = if is_dragged {
+                                                    sky_blue
+                                                } else {
+                                                    emerald_bright
+                                                };
+                                                let header_label = format!("⋮⋮ {}{sort_icon}", col.to_uppercase());
+                                                ui.painter().text(
+                                                    header_rect.center(),
+                                                    egui::Align2::CENTER_CENTER,
+                                                    header_label,
+                                                    egui::FontId::proportional(font_size),
+                                                    label_color,
+                                                );
+
+                                                // Drop target indicator line
+                                                if let Some((ref target, is_after)) = active_drop_target {
+                                                    if target == col {
+                                                        let drop_x = if is_after {
+                                                            header_rect.right()
+                                                        } else {
+                                                            header_rect.left()
+                                                        };
+                                                        ui.painter().vline(
+                                                            drop_x,
+                                                            header_rect.y_range(),
+                                                            egui::Stroke::new(3.0, Color32::from_rgb(56, 189, 248)),
                                                         );
-                                                        if ui
-                                                            .button(
-                                                                egui::RichText::new(btn_text)
-                                                                    .color(emerald_bright)
-                                                                    .strong(),
-                                                            )
-                                                            .clicked()
-                                                        {
-                                                            toggle_sort_col = Some(col.clone());
-                                                        }
-                                                    });
+                                                    }
+                                                }
+
+                                                // Column Resize Handle
+                                                let (resize_rect, resize_resp) = ui.allocate_exact_size(
+                                                    Vec2::new(6.0, header_h),
+                                                    egui::Sense::click_and_drag(),
+                                                );
+                                                if resize_resp.hovered() || resize_resp.dragged() {
+                                                    ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeColumn);
+                                                }
+                                                if resize_resp.dragged() {
+                                                    let delta = resize_resp.drag_delta().x;
+                                                    resize_action = Some((col.clone(), col_width + delta));
+                                                }
+                                                if resize_resp.double_clicked() {
+                                                    reset_action = Some(col.clone());
+                                                }
+                                                let divider_col = if resize_resp.dragged() {
+                                                    Color32::from_rgb(56, 189, 248)
+                                                } else if resize_resp.hovered() {
+                                                    Color32::from_rgb(16, 185, 129)
+                                                } else {
+                                                    Color32::from_rgb(38, 42, 50)
+                                                };
+                                                ui.painter().vline(
+                                                    resize_rect.center().x,
+                                                    resize_rect.y_range(),
+                                                    egui::Stroke::new(
+                                                        if resize_resp.hovered() || resize_resp.dragged() { 2.0 } else { 1.0 },
+                                                        divider_col,
+                                                    ),
+                                                );
                                             }
 
                                             // Inlined lookups column headers
                                             for lookup in &inlined_lookups {
-                                                egui::Frame::new()
-                                                    .fill(Color32::from_rgb(26, 20, 36))
-                                                    .stroke(border_stroke)
-                                                    .inner_margin(egui::Margin::symmetric(
-                                                        pad.0, 5,
-                                                    ))
-                                                    .show(ui, |ui| {
-                                                        ui.colored_label(
-                                                            Color32::from_rgb(192, 132, 252),
-                                                            format!(
-                                                                "🏷️ {}",
-                                                                lookup.alias.to_uppercase()
-                                                            ),
-                                                        );
-                                                    });
+                                                let col_width = col_widths_map.get(&lookup.alias).copied().unwrap_or(135.0);
+                                                let (header_rect, _) = ui.allocate_exact_size(
+                                                    Vec2::new(col_width, header_h),
+                                                    egui::Sense::hover(),
+                                                );
+                                                ui.painter().rect_filled(header_rect, 0.0, Color32::from_rgb(26, 20, 36));
+                                                ui.painter().rect_stroke(
+                                                    header_rect,
+                                                    0.0,
+                                                    border_stroke,
+                                                    egui::StrokeKind::Inside,
+                                                );
+                                                ui.painter().text(
+                                                    header_rect.center(),
+                                                    egui::Align2::CENTER_CENTER,
+                                                    format!("🏷️ {}", lookup.alias.to_uppercase()),
+                                                    egui::FontId::proportional(font_size),
+                                                    Color32::from_rgb(192, 132, 252),
+                                                );
+
+                                                // Resize handle for inlined lookup
+                                                let (resize_rect, resize_resp) = ui.allocate_exact_size(
+                                                    Vec2::new(6.0, header_h),
+                                                    egui::Sense::click_and_drag(),
+                                                );
+                                                if resize_resp.hovered() || resize_resp.dragged() {
+                                                    ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeColumn);
+                                                }
+                                                if resize_resp.dragged() {
+                                                    let delta = resize_resp.drag_delta().x;
+                                                    resize_action = Some((lookup.alias.clone(), col_width + delta));
+                                                }
+                                                if resize_resp.double_clicked() {
+                                                    reset_action = Some(lookup.alias.clone());
+                                                }
+                                                let div_col = if resize_resp.dragged() {
+                                                    Color32::from_rgb(192, 132, 252)
+                                                } else if resize_resp.hovered() {
+                                                    Color32::from_rgb(168, 85, 247)
+                                                } else {
+                                                    Color32::from_rgb(38, 42, 50)
+                                                };
+                                                ui.painter().vline(
+                                                    resize_rect.center().x,
+                                                    resize_rect.y_range(),
+                                                    egui::Stroke::new(
+                                                        if resize_resp.hovered() || resize_resp.dragged() { 2.0 } else { 1.0 },
+                                                        div_col,
+                                                    ),
+                                                );
                                             }
 
                                             // Subquery column headers
                                             for rel in &nested_rels {
-                                                egui::Frame::new()
-                                                    .fill(Color32::from_rgb(20, 24, 32))
-                                                    .stroke(border_stroke)
-                                                    .inner_margin(egui::Margin::symmetric(6, 5))
-                                                    .show(ui, |ui| {
-                                                        ui.colored_label(sky_blue, "SUB#");
-                                                    });
+                                                let (sub_idx_rect, _) = ui.allocate_exact_size(
+                                                    Vec2::new(38.0, header_h),
+                                                    egui::Sense::hover(),
+                                                );
+                                                ui.painter().rect_filled(sub_idx_rect, 0.0, Color32::from_rgb(20, 24, 32));
+                                                ui.painter().rect_stroke(sub_idx_rect, 0.0, border_stroke, egui::StrokeKind::Inside);
+                                                ui.painter().text(
+                                                    sub_idx_rect.center(),
+                                                    egui::Align2::CENTER_CENTER,
+                                                    "SUB#",
+                                                    egui::FontId::proportional(font_size),
+                                                    sky_blue,
+                                                );
 
                                                 for c in &rel.columns {
                                                     if !c.visible {
                                                         continue;
                                                     }
-                                                    let col_name =
-                                                        c.alias.as_deref().unwrap_or(&c.name);
-                                                    egui::Frame::new()
-                                                        .fill(Color32::from_rgb(20, 24, 32))
-                                                        .stroke(border_stroke)
-                                                        .inner_margin(egui::Margin::symmetric(
-                                                            pad.0, 5,
-                                                        ))
-                                                        .show(ui, |ui| {
-                                                            ui.colored_label(
-                                                                sky_blue,
-                                                                col_name.to_uppercase(),
-                                                            );
-                                                        });
+                                                    let col_name = c.alias.as_deref().unwrap_or(&c.name);
+                                                    let sub_key = format!("{}.{}", rel.relation_name, col_name);
+                                                    let col_width = col_widths_map.get(&sub_key).copied().unwrap_or(135.0);
+
+                                                    let (header_rect, _) = ui.allocate_exact_size(
+                                                        Vec2::new(col_width, header_h),
+                                                        egui::Sense::hover(),
+                                                    );
+                                                    ui.painter().rect_filled(header_rect, 0.0, Color32::from_rgb(20, 24, 32));
+                                                    ui.painter().rect_stroke(header_rect, 0.0, border_stroke, egui::StrokeKind::Inside);
+                                                    ui.painter().text(
+                                                        header_rect.center(),
+                                                        egui::Align2::CENTER_CENTER,
+                                                        col_name.to_uppercase(),
+                                                        egui::FontId::proportional(font_size),
+                                                        sky_blue,
+                                                    );
+
+                                                    // Resize handle
+                                                    let (resize_rect, resize_resp) = ui.allocate_exact_size(
+                                                        Vec2::new(6.0, header_h),
+                                                        egui::Sense::click_and_drag(),
+                                                    );
+                                                    if resize_resp.hovered() || resize_resp.dragged() {
+                                                        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeColumn);
+                                                    }
+                                                    if resize_resp.dragged() {
+                                                        let delta = resize_resp.drag_delta().x;
+                                                        resize_action = Some((sub_key.clone(), col_width + delta));
+                                                    }
+                                                    if resize_resp.double_clicked() {
+                                                        reset_action = Some(sub_key.clone());
+                                                    }
+                                                    let div_col = if resize_resp.dragged() {
+                                                        sky_blue
+                                                    } else if resize_resp.hovered() {
+                                                        Color32::from_rgb(14, 165, 233)
+                                                    } else {
+                                                        Color32::from_rgb(38, 42, 50)
+                                                    };
+                                                    ui.painter().vline(
+                                                        resize_rect.center().x,
+                                                        resize_rect.y_range(),
+                                                        egui::Stroke::new(
+                                                            if resize_resp.hovered() || resize_resp.dragged() { 2.0 } else { 1.0 },
+                                                            div_col,
+                                                        ),
+                                                    );
                                                 }
                                             }
 
                                             // Rollup column headers
                                             for agg in &rollups {
-                                                egui::Frame::new()
-                                                    .fill(Color32::from_rgb(28, 25, 20))
-                                                    .stroke(border_stroke)
-                                                    .inner_margin(egui::Margin::symmetric(
-                                                        pad.0, 5,
-                                                    ))
-                                                    .show(ui, |ui| {
-                                                        ui.colored_label(
-                                                            amber,
-                                                            format!(
-                                                                "∑ {}",
-                                                                agg.alias.to_uppercase()
-                                                            ),
-                                                        );
-                                                    });
+                                                let col_width = col_widths_map.get(&agg.alias).copied().unwrap_or(135.0);
+                                                let (header_rect, _) = ui.allocate_exact_size(
+                                                    Vec2::new(col_width, header_h),
+                                                    egui::Sense::hover(),
+                                                );
+                                                ui.painter().rect_filled(header_rect, 0.0, Color32::from_rgb(28, 25, 20));
+                                                ui.painter().rect_stroke(header_rect, 0.0, border_stroke, egui::StrokeKind::Inside);
+                                                ui.painter().text(
+                                                    header_rect.center(),
+                                                    egui::Align2::CENTER_CENTER,
+                                                    format!("∑ {}", agg.alias.to_uppercase()),
+                                                    egui::FontId::proportional(font_size),
+                                                    amber,
+                                                );
+
+                                                // Resize handle
+                                                let (resize_rect, resize_resp) = ui.allocate_exact_size(
+                                                    Vec2::new(6.0, header_h),
+                                                    egui::Sense::click_and_drag(),
+                                                );
+                                                if resize_resp.hovered() || resize_resp.dragged() {
+                                                    ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeColumn);
+                                                }
+                                                if resize_resp.dragged() {
+                                                    let delta = resize_resp.drag_delta().x;
+                                                    resize_action = Some((agg.alias.clone(), col_width + delta));
+                                                }
+                                                if resize_resp.double_clicked() {
+                                                    reset_action = Some(agg.alias.clone());
+                                                }
+                                                let div_col = if resize_resp.dragged() {
+                                                    amber
+                                                } else if resize_resp.hovered() {
+                                                    Color32::from_rgb(245, 158, 11)
+                                                } else {
+                                                    Color32::from_rgb(38, 42, 50)
+                                                };
+                                                ui.painter().vline(
+                                                    resize_rect.center().x,
+                                                    resize_rect.y_range(),
+                                                    egui::Stroke::new(
+                                                        if resize_resp.hovered() || resize_resp.dragged() { 2.0 } else { 1.0 },
+                                                        div_col,
+                                                    ),
+                                                );
                                             }
                                         });
+
+                                        // Drag-and-drop finalizing
+                                        if pointer_released {
+                                            if let (Some(ref dragged), Some((ref target, is_after))) =
+                                                (&active_dragged_col, &active_drop_target)
+                                            {
+                                                if dragged != target {
+                                                    reorder_action = Some((dragged.clone(), target.clone(), *is_after));
+                                                }
+                                            }
+                                            clear_drag = true;
+                                        }
+
+                                        if let Some(ref dragged) = active_dragged_col {
+                                            let tooltip_pos = current_pointer_pos.unwrap_or(egui::pos2(120.0, 120.0)) + Vec2::new(14.0, 14.0);
+                                            egui::Area::new(ui.make_persistent_id("col_drag_tooltip"))
+                                                .order(egui::Order::Tooltip)
+                                                .fixed_pos(tooltip_pos)
+                                                .show(ui.ctx(), |ui| {
+                                                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                                                        ui.horizontal(|ui| {
+                                                            ui.colored_label(Color32::from_rgb(148, 163, 184), "⇄ Reordering Column:");
+                                                            ui.colored_label(sky_blue, egui::RichText::new(dragged).strong());
+                                                        });
+                                                    });
+                                                });
+                                        }
 
                                         // 3. CONTINUOUS ROW BLOCKS
                                         for (row_idx, record) in filtered_records.iter().enumerate()
@@ -2058,10 +2355,11 @@ impl eframe::App for DatabaseCraftGui {
                                                                 .stroke(border_stroke)
                                                                 .inner_margin(
                                                                     egui::Margin::symmetric(
-                                                                        8, pad.1,
+                                                                        6, pad.1,
                                                                     ),
                                                                 )
                                                                 .show(ui, |ui| {
+                                                                    ui.set_width(38.0);
                                                                     ui.colored_label(
                                                                         emerald_bright,
                                                                         format!("#{}", row_idx + 1),
@@ -2077,6 +2375,8 @@ impl eframe::App for DatabaseCraftGui {
                                                                 ));
 
                                                             for col in &root_cols {
+                                                                let col_width = col_widths_map.get(col).copied().unwrap_or(135.0);
+                                                                let cell_total_w = col_width + 6.0;
                                                                 let val = obj
                                                                     .get(col)
                                                                     .unwrap_or(&Value::Null);
@@ -2099,6 +2399,7 @@ impl eframe::App for DatabaseCraftGui {
                                                                         ),
                                                                     )
                                                                     .show(ui, |ui| {
+                                                                        ui.set_width(cell_total_w - (pad.0 as f32 * 2.0));
                                                                         if is_editing {
                                                                             ui.horizontal(|ui| {
                                                                                 if let Some(
@@ -2110,7 +2411,7 @@ impl eframe::App for DatabaseCraftGui {
                                                                                         egui::TextEdit::singleline(
                                                                                             &mut edit.edit_str,
                                                                                         )
-                                                                                        .desired_width(85.0),
+                                                                                        .desired_width(col_width - 45.0),
                                                                                     );
                                                                                     if text_resp.lost_focus()
                                                                                         && ui.input(|i| i.key_pressed(egui::Key::Enter))
@@ -2152,6 +2453,8 @@ impl eframe::App for DatabaseCraftGui {
 
                                                             // Inlined lookups (Compact Joins)
                                                             for lookup in &inlined_lookups {
+                                                                let col_width = col_widths_map.get(&lookup.alias).copied().unwrap_or(135.0);
+                                                                let cell_total_w = col_width + 6.0;
                                                                 let val = obj
                                                                     .get(&lookup.alias)
                                                                     .unwrap_or(&Value::Null);
@@ -2163,6 +2466,7 @@ impl eframe::App for DatabaseCraftGui {
                                                                         ),
                                                                     )
                                                                     .show(ui, |ui| {
+                                                                        ui.set_width(cell_total_w - (pad.0 as f32 * 2.0));
                                                                         render_formatted_cell(
                                                                             ui,
                                                                             &lookup.alias,
@@ -2233,6 +2537,7 @@ impl eframe::App for DatabaseCraftGui {
                                                                                         .stroke(border_stroke)
                                                                                         .inner_margin(egui::Margin::symmetric(6, pad.1))
                                                                                         .show(ui, |ui| {
+                                                                                            ui.set_width(38.0);
                                                                                             ui.weak(format!("{}.", c_idx + 1));
                                                                                         });
 
@@ -2242,11 +2547,15 @@ impl eframe::App for DatabaseCraftGui {
                                                                                                 continue;
                                                                                             }
                                                                                             let key = c.alias.as_deref().unwrap_or(&c.name);
+                                                                                            let sub_key = format!("{}.{}", rel.relation_name, key);
+                                                                                            let col_width = col_widths_map.get(&sub_key).copied().unwrap_or(135.0);
+                                                                                            let cell_total_w = col_width + 6.0;
                                                                                             let val = c_obj.get(key).unwrap_or(&Value::Null);
                                                                                             egui::Frame::new()
                                                                                                 .stroke(border_stroke)
                                                                                                 .inner_margin(egui::Margin::symmetric(pad.0, pad.1))
                                                                                                 .show(ui, |ui| {
+                                                                                                    ui.set_width(cell_total_w - (pad.0 as f32 * 2.0));
                                                                                                     render_formatted_cell(ui, &c.name, val, density);
                                                                                                 });
                                                                                         }
@@ -2275,6 +2584,8 @@ impl eframe::App for DatabaseCraftGui {
 
                                                             // Inline Rollups
                                                             for agg in &rollups {
+                                                                let col_width = col_widths_map.get(&agg.alias).copied().unwrap_or(135.0);
+                                                                let cell_total_w = col_width + 6.0;
                                                                 let val = obj
                                                                     .get(&agg.alias)
                                                                     .unwrap_or(&Value::Null);
@@ -2286,6 +2597,7 @@ impl eframe::App for DatabaseCraftGui {
                                                                         ),
                                                                     )
                                                                     .show(ui, |ui| {
+                                                                        ui.set_width(cell_total_w - (pad.0 as f32 * 2.0));
                                                                         if let Some(n) =
                                                                             val.as_f64()
                                                                         {
@@ -2361,6 +2673,28 @@ impl eframe::App for DatabaseCraftGui {
                             if let Some(col) = toggle_sort_col {
                                 self.toggle_canvas_sort(&col);
                             }
+                            if let Some((from, to, drop_after)) = reorder_action {
+                                self.reorder_canvas_column(&from, &to, drop_after);
+                            }
+                            if let Some((col, new_w)) = resize_action {
+                                self.set_column_width(&col, new_w);
+                            }
+                            if let Some(col) = reset_action {
+                                self.canvas_column_widths.remove(&col);
+                                if let Some(ref mut spec) = self.canvas_spec {
+                                    spec.set_column_width(&col, 135);
+                                }
+                            }
+                            if let Some(col) = start_drag_col {
+                                self.canvas_dragged_col = Some(col);
+                            }
+                            if let Some(target) = update_drop_target {
+                                self.canvas_drop_target = target;
+                            }
+                            if clear_drag {
+                                self.canvas_dragged_col = None;
+                                self.canvas_drop_target = None;
+                            }
                         }
                     } else {
                         ui.colored_label(
@@ -2385,11 +2719,26 @@ impl eframe::App for DatabaseCraftGui {
                             ui.heading("Field Selector");
                             ui.separator();
 
-                            ui.strong("Root Table Attributes:");
+                            ui.strong("Root Table Attributes & Column Order:");
+                            let mut move_col_action: Option<(String, String, bool)> = None;
                             if let Some(ref mut spec) = self.canvas_spec {
-                                for col in &mut spec.columns {
-                                    ui.checkbox(&mut col.visible, &col.name);
+                                for i in 0..spec.columns.len() {
+                                    let col_name = spec.columns[i].name.clone();
+                                    ui.horizontal(|ui| {
+                                        ui.checkbox(&mut spec.columns[i].visible, &col_name);
+                                        if i > 0 && ui.small_button("▲").clicked() {
+                                            let prev_name = spec.columns[i - 1].name.clone();
+                                            move_col_action = Some((col_name.clone(), prev_name, false));
+                                        }
+                                        if i + 1 < spec.columns.len() && ui.small_button("▼").clicked() {
+                                            let next_name = spec.columns[i + 1].name.clone();
+                                            move_col_action = Some((col_name, next_name, true));
+                                        }
+                                    });
                                 }
+                            }
+                            if let Some((from, to, drop_after)) = move_col_action {
+                                self.reorder_canvas_column(&from, &to, drop_after);
                             }
 
                             ui.separator();

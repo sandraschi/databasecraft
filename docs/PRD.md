@@ -100,6 +100,8 @@ Following the **ArtCraft Containment Harness** ([`CONTAINMENT_AND_CRATES.md`](..
 | **F29** | In-Place Cell Editing & Undo/Redo | Atomic double-click cell mutation with primary key write-back, quiescent mutation tracking, Craft Notification Bus events, and multi-step Undo/Redo stack. | ✅ Complete |
 | **F30** | Compact Joins (Foreign Key Inlining) | Inlines referenced human-readable labels (e.g. `company_name` for `customer_id`) via optimized scalar subqueries without sprouting child table hierarchies. | ✅ Complete |
 | **F31** | Interactive Canvas Header Sorting | Tri-state column header sorting (`ASC` / `DESC` / `None`) with visual indicators (`▲`, `▼`), recompiling the perspective AST in sub-milliseconds. | ✅ Complete |
+| **F32** | Interactive Column Resizing & Pixel-Perfect Alignment | Dynamic drag-to-resize divider handles on column headers, synchronized column widths from headers down to all row cells, density-aware default sizing, and double-click reset. | ✅ Complete |
+| **F33** | Drag-and-Drop Column Reordering | Interactive column header drag-and-drop with floating drag indicators, animated cyan drop zone target lines, automatic AST column permutation, and instant perspective recompilation. | ✅ Complete |
 
 ---
 

@@ -1093,6 +1093,7 @@ async fn test_canvas_inlined_lookup_compact_join() -> Result<(), Box<dyn std::er
             foreign_pk_col: "id".to_string(),
             display_col: "company_name".to_string(),
             alias: "customer_name".to_string(),
+            width_px: None,
         }],
         nested_relations: vec![],
         aggregations: vec![],
@@ -1113,6 +1114,47 @@ async fn test_canvas_inlined_lookup_compact_join() -> Result<(), Box<dyn std::er
     let cust_name = first_row["customer_name"].as_str().unwrap_or("");
     assert!(!cust_name.is_empty());
     assert_ne!(cust_name, "NULL");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_canvas_column_reordering_and_resizing() -> Result<(), Box<dyn std::error::Error>> {
+    use databasecraft_core::canvas::{reorder_slice, CanvasColumn, CanvasSpec};
+
+    // 1. Test reorder_slice
+    let mut items = vec!["A", "B", "C", "D"];
+    // Move A (0) to C (2), drop_after = false -> should place A before C: [B, A, C, D]
+    reorder_slice(&mut items, 0, 2, false);
+    assert_eq!(items, vec!["B", "A", "C", "D"]);
+
+    // Move D (3) to B (0), drop_after = false -> [D, B, A, C]
+    reorder_slice(&mut items, 3, 0, false);
+    assert_eq!(items, vec!["D", "B", "A", "C"]);
+
+    // Move D (0) to A (2), drop_after = true -> [B, A, D, C]
+    reorder_slice(&mut items, 0, 2, true);
+    assert_eq!(items, vec!["B", "A", "D", "C"]);
+
+    // 2. Test CanvasSpec reorder_columns and set_column_width
+    let mut spec = CanvasSpec::new("customers");
+    spec.columns = vec![
+        CanvasColumn::new("id"),
+        CanvasColumn::new("company_name"),
+        CanvasColumn::new("contact_name"),
+        CanvasColumn::new("city"),
+    ];
+
+    // Reorder: move contact_name before id
+    assert!(spec.reorder_columns("contact_name", "id", false));
+    let col_names: Vec<&str> = spec.columns.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(col_names, vec!["contact_name", "id", "company_name", "city"]);
+
+    // Set custom column widths
+    assert!(spec.set_column_width("contact_name", 180));
+    assert!(spec.set_column_width("company_name", 250));
+    assert_eq!(spec.columns[0].width_px, Some(180));
+    assert_eq!(spec.columns[2].width_px, Some(250));
 
     Ok(())
 }

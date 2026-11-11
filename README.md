@@ -83,7 +83,7 @@ cargo run -p databasecraft-app -- --control 14113
 
 * 📄 [**The CFO & Executive 24/7 Relational Cockpit**](docs/CFO_RELATIONAL_CANVAS.md) — Operational and architectural guide for running continuous financial perspectives.
 * 📄 [**The CTO Resident Operations Watchdog**](docs/CTO_RESIDENT_WATCHDOG.md) — Autonomous database health, quiescence anomaly detection, and Craft Notification Bus.
-* 📄 [**Product Requirements Document (PRD)**](docs/PRD.md) — 5-tier system architecture, functional specs (F1–F31), and containment rules.
+* 📄 [**Product Requirements Document (PRD)**](docs/PRD.md) — 5-tier system architecture, functional specs (F1–F33), and containment rules.
 * 📄 [**Cross-Craft Multi-App Integration**](docs/CROSS_CRAFT_FLOWS.md) — Export payload specifications for DesignCraft, DeckCraft, WordCraft, GridCraft, and PdfCraft.
 * 📄 [**Hybrid RAG & Vector Facility**](docs/RAG_FACILITY.md) — In-process dense vector embeddings and SQLite FTS5 Reciprocal Rank Fusion (RRF).
 
@@ -94,6 +94,8 @@ cargo run -p databasecraft-app -- --control 14113
 **Does today:** 
 - Core/Store/MCP/App crates compiling under strict `#![deny(clippy::unwrap_used)]`.
 - Relational Canvas AST, SQLite JSON query compiler, and relation sprouter.
+- Interactive column resizing with real-time divider drag handles, pixel-perfect cell alignment down all matrix rows, and double-click auto-reset.
+- Drag-and-drop column reordering with cursor grab feedback, floating drag badges, animated drop target indicators, and live perspective AST recompilation.
 - In-place cell editing with primary key write-back, multi-step Undo/Redo stack, and quiescent mutation auditing.
 - Compact Joins (foreign key inlining) projecting human-readable names (`customers.company_name` for `orders.customer_id`) via scalar subqueries.
 - Continuous Spanned Spreadsheet Matrix with multi-tier table ownership headers, tri-state interactive column header sorting, 1px hairline borders, and density control (Compact, Standard, Relaxed).
@@ -102,7 +104,7 @@ cargo run -p databasecraft-app -- --control 14113
 - Generalized Craft Notification Bus with severity levels (`info`, `warning`, `critical`, `disaster`) and ring buffer.
 - Autonomous CTO Watchdog with quiescent table mutation anomaly detection (e.g. `employees`, `roles`).
 - Desktop GUI with 11 integrated tabs: `Table Data`, `✨ Relational Canvas`, `SQL & NLQ Console`, `Schema ERD`, `AI Copilot`, `RAG Vectors`, `Profiler`, `Doctor`, `Domain Constructor`, `Cross-Craft Export`, `🚨 Alerts & Watchdog`.
-- 31 automated tests passing with zero warnings.
+- 33 automated tests passing with zero warnings.
 - MCP stdio framing (`MCP 2024-11-05`) + TCP Plane 2 on control port `14113`.
 
 **Lineage:**  

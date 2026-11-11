@@ -10,6 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.7.0] - 2026-11-11
 
 ### Added
+- **Interactive Column Resizing & Pixel-Perfect 2D Grid Alignment**:
+  - Implemented real-time drag divider handles (6px interactive hit zone) between column headers in Tier 2 with visual color highlights (emerald on hover, electric cyan while dragging).
+  - Synchronized pixel-perfect widths enforced from Tier 2 column headers down to every data cell in the continuous spreadsheet matrix.
+  - Double-clicking any column resize divider handle instantly auto-resets the column to density default width.
+  - Added `CanvasColumn::width_px` and `CanvasInlinedLookup::width_px` preserving persistent layout geometries in the Canvas perspective AST.
+  - Added top-bar quick action `⇲ Reset Widths` clearing manual overrides and restoring standard density metrics.
+- **Drag-and-Drop Column Reordering (Ultorg-Style)**:
+  - Column headers in Tier 2 support intuitive click-and-drag reordering with `egui::CursorIcon::Grabbing`.
+  - Dynamic floating drag badge following the mouse pointer showing `⇄ Reordering Column: [NAME]`.
+  - Target drop zone feedback with an animated 3px vertical sky-blue landing line indicating exact insertion placement (before or after target column).
+  - Reordering immediately updates `CanvasSpec::columns`, reorders projections without table schema mutation, and triggers live AST recompilation.
+  - Added `CanvasSpec::reorder_columns` and `reorder_slice` AST helper algorithms.
+  - Enhanced Fields & Joins Palette (`Ctrl+K`) with `[▲]` / `[▼]` manual reordering controls alongside visual drag-and-drop.
 - **In-Place Cell Editing & Multi-Step Undo/Redo Stack**:
   - Double-clicking any cell in the Canvas continuous matrix grid switches into an active `egui::TextEdit` input with `[✓ Commit]` (`Enter`) and `[✖ Cancel]` (`Esc`).
   - Atomic primary key write-back via `Command::UpdateCell` executing parameterized `UPDATE <table> SET <col> = ? WHERE <pk> = ?`.
@@ -27,7 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Visual glyph indicators (`▲` for ascending, `▼` for descending) directly in column headers.
   - Recompiles the perspective AST and refetches data dynamically.
 - **Automated Tests**:
-  - Expanded test suite from 27 to 31 tests covering in-place cell editing, compact joins, primary key extraction, mutation auditing, and GUI undo/redo stacks.
+  - Expanded test suite from 27 to 33 tests covering interactive column resizing, drag-and-drop column reordering, AST column permutations, in-place cell editing, compact joins, primary key extraction, mutation auditing, and GUI undo/redo stacks.
 
 ## [0.6.0] - 2026-11-11
 

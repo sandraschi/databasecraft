@@ -76,6 +76,8 @@ pub struct CanvasColumn {
     pub alias: Option<String>,
     #[serde(default = "default_true")]
     pub visible: bool,
+    #[serde(default)]
+    pub width_px: Option<u32>,
 }
 
 fn default_true() -> bool {
@@ -88,6 +90,7 @@ impl CanvasColumn {
             name: name.to_string(),
             alias: None,
             visible: true,
+            width_px: None,
         }
     }
 
@@ -96,8 +99,38 @@ impl CanvasColumn {
             name: name.to_string(),
             alias: Some(alias.to_string()),
             visible: true,
+            width_px: None,
         }
     }
+
+    pub fn with_width(mut self, width_px: u32) -> Self {
+        self.width_px = Some(width_px);
+        self
+    }
+}
+
+/// Reorders an element in a mutable slice/vector from `from_idx` to `to_idx`.
+/// If `drop_after` is true, inserts after target index; otherwise inserts before target index.
+pub fn reorder_slice<T>(list: &mut Vec<T>, from_idx: usize, to_idx: usize, drop_after: bool) {
+    if from_idx >= list.len() || to_idx >= list.len() || from_idx == to_idx {
+        return;
+    }
+    let item = list.remove(from_idx);
+    let mut target = if from_idx < to_idx {
+        if drop_after {
+            to_idx
+        } else {
+            to_idx.saturating_sub(1)
+        }
+    } else if drop_after {
+        to_idx + 1
+    } else {
+        to_idx
+    };
+    if target > list.len() {
+        target = list.len();
+    }
+    list.insert(target, item);
 }
 
 /// Inline aggregation calculating summary metrics across relations.
@@ -127,6 +160,8 @@ pub struct CanvasInlinedLookup {
     pub display_col: String,
     /// Output alias name (e.g. "customer_name").
     pub alias: String,
+    #[serde(default)]
+    pub width_px: Option<u32>,
 }
 
 /// Nested child relation in a perspective (e.g. `Orders` under `Customers`).
@@ -187,6 +222,110 @@ pub struct CanvasSpec {
     pub limit: Option<usize>,
     /// Pagination offset.
     pub offset: Option<usize>,
+}
+
+impl CanvasNestedRelation {
+    /// Reorders child columns by moving `from_col` to `to_col`.
+    pub fn reorder_columns(&mut self, from_col: &str, to_col: &str, drop_after: bool) -> bool {
+        let from_idx = self.columns.iter().position(|c| {
+            c.name.eq_ignore_ascii_case(from_col)
+                || c.alias.as_deref().unwrap_or("").eq_ignore_ascii_case(from_col)
+        });
+        let to_idx = self.columns.iter().position(|c| {
+            c.name.eq_ignore_ascii_case(to_col)
+                || c.alias.as_deref().unwrap_or("").eq_ignore_ascii_case(to_col)
+        });
+
+        if let (Some(f), Some(t)) = (from_idx, to_idx) {
+            reorder_slice(&mut self.columns, f, t, drop_after);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Sets the persistent pixel width of a child column.
+    pub fn set_column_width(&mut self, col_name: &str, width_px: u32) -> bool {
+        if let Some(col) = self.columns.iter_mut().find(|c| {
+            c.name.eq_ignore_ascii_case(col_name)
+                || c.alias.as_deref().unwrap_or("").eq_ignore_ascii_case(col_name)
+        }) {
+            col.width_px = Some(width_px);
+            true
+        } else if let Some(lookup) = self.inlined_lookups.iter_mut().find(|l| {
+            l.alias.eq_ignore_ascii_case(col_name)
+        }) {
+            lookup.width_px = Some(width_px);
+            true
+        } else {
+            false
+        }
+    }
+}
+
+impl CanvasSpec {
+    pub fn new(root_table: &str) -> Self {
+        Self {
+            root_table: root_table.to_string(),
+            columns: Vec::new(),
+            inlined_lookups: Vec::new(),
+            nested_relations: Vec::new(),
+            aggregations: Vec::new(),
+            filters: Vec::new(),
+            sort: Vec::new(),
+            limit: None,
+            offset: None,
+        }
+    }
+
+    /// Reorders root projected columns by moving `from_col` to `to_col`.
+    pub fn reorder_columns(&mut self, from_col: &str, to_col: &str, drop_after: bool) -> bool {
+        let from_idx = self.columns.iter().position(|c| {
+            c.name.eq_ignore_ascii_case(from_col)
+                || c.alias.as_deref().unwrap_or("").eq_ignore_ascii_case(from_col)
+        });
+        let to_idx = self.columns.iter().position(|c| {
+            c.name.eq_ignore_ascii_case(to_col)
+                || c.alias.as_deref().unwrap_or("").eq_ignore_ascii_case(to_col)
+        });
+
+        if let (Some(f), Some(t)) = (from_idx, to_idx) {
+            reorder_slice(&mut self.columns, f, t, drop_after);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Reorders inlined lookups (Compact Joins) by alias.
+    pub fn reorder_inlined_lookups(&mut self, from_alias: &str, to_alias: &str, drop_after: bool) -> bool {
+        let from_idx = self.inlined_lookups.iter().position(|l| l.alias.eq_ignore_ascii_case(from_alias));
+        let to_idx = self.inlined_lookups.iter().position(|l| l.alias.eq_ignore_ascii_case(to_alias));
+        if let (Some(f), Some(t)) = (from_idx, to_idx) {
+            reorder_slice(&mut self.inlined_lookups, f, t, drop_after);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Sets the persistent pixel width of a specified column or inlined lookup.
+    pub fn set_column_width(&mut self, col_name: &str, width_px: u32) -> bool {
+        if let Some(col) = self.columns.iter_mut().find(|c| {
+            c.name.eq_ignore_ascii_case(col_name)
+                || c.alias.as_deref().unwrap_or("").eq_ignore_ascii_case(col_name)
+        }) {
+            col.width_px = Some(width_px);
+            true
+        } else if let Some(lookup) = self.inlined_lookups.iter_mut().find(|l| {
+            l.alias.eq_ignore_ascii_case(col_name)
+        }) {
+            lookup.width_px = Some(width_px);
+            true
+        } else {
+            false
+        }
+    }
 }
 
 /// Discovered relational link (Forward or Reverse) for Field Selector sprouting.

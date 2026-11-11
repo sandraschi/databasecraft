@@ -1,16 +1,24 @@
 # DatabaseCraft — Handover Document
 
 **Last Updated**: 2026-11-11
-**Current State**: Production-Ready Relational Canvas, In-Place Cell Editing, Compact Joins & CTO Watchdog (v0.7.0)
+**Current State**: Production-Ready Relational Canvas, In-Place Cell Editing, Column Resizing & Drag-and-Drop Reordering, Compact Joins & CTO Watchdog (v0.7.0)
 **Primary Artifact**: [sandraschi/databasecraft](https://github.com/sandraschi/databasecraft)
 **Registered Port**: `14113`
-**Automated Tests**: 31 unit & integration tests passing (100% green, 0 warnings)
+**Automated Tests**: 33 unit & integration tests passing (100% green, 0 warnings)
 
 ---
 
 ## 1. What Was Done (v0.7.0 Release)
 
-1. **In-Place Cell Editing with Primary Key Write-Back & Undo/Redo**:
+1. **Interactive Drag-and-Drop Column Reordering & Column Resizing**:
+   - Implemented interactive drag-and-drop column reordering across root, inlined lookup, subquery, and rollup columns with live visual grab cursor, floating drag tooltip (`⇄ Reordering Column: [NAME]`), and 3px electric cyan drop target guideline.
+   - Built 6px vertical divider resize handles on all column headers with real-time drag expansion/contraction (`Sense::click_and_drag`, `ResizeColumn` cursor), live visual width indicators, and double-click reset to default density width.
+   - Standardized continuous spreadsheet matrix data cell widths to `col_width + 6.0` across all data rows and child relation levels, delivering pixel-perfect vertical grid alignment without horizontal drift.
+   - AST & Spec persistence: Added `width_px: Option<u32>` to `CanvasColumn` and `CanvasInlinedLookup`, with `reorder_columns`, `reorder_inlined_lookups`, `reorder_slice`, and `set_column_width` methods on `CanvasSpec` and `CanvasNestedRelation`.
+   - Fields & Joins Palette (`Ctrl+K`): Added `[▲]` and `[▼]` manual reordering buttons for all projected fields.
+   - Top action bar: Added `⇲ Reset Widths` quick action button.
+
+2. **In-Place Cell Editing with Primary Key Write-Back & Undo/Redo**:
    - Double-clicking any cell in the Canvas continuous matrix grid switches into an active `egui::TextEdit` input with `[✓ Commit]` (`Enter`) and `[✖ Cancel]` (`Esc`).
    - Atomic primary key write-back via `Command::UpdateCell` executing parameterized `UPDATE <table> SET <col> = ? WHERE <pk> = ?`.
    - Primary key lookup automatically extracts table primary key columns (`get_primary_key`).
@@ -77,10 +85,10 @@
 
 1. **DuckDB / Parquet External Data Connectors**:
    - Allow the Relational Canvas compiler to target external DuckDB and Parquet files for analytical perspectives over gigabyte-scale datasets.
-2. **Interactive Column Resizing & Reordering**:
-   - Allow dragging column dividers to resize column widths, and drag-and-drop column reordering in the continuous matrix headers.
-3. **Cross-Craft Direct Export Workflows**:
+2. **Cross-Craft Direct Export Workflows**:
    - Implement one-click export actions sending canvas slice payloads directly to DesignCraft, DeckCraft, WordCraft, and GridCraft over local plane 2 RPC.
+3. **Advanced Filtering & Formula Expressions**:
+   - In-canvas expression builder and column filters with instant live data updates.
 
 ---
 
@@ -96,7 +104,7 @@
 ## 4. Verification Commands
 
 ```powershell
-# Run all 31 automated tests
+# Run all 33 automated tests
 cargo test --manifest-path "d:\Dev\repos\databasecraft\Cargo.toml"
 
 # Run clippy across all targets

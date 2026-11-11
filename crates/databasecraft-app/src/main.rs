@@ -524,6 +524,73 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn test_canvas_interactive_column_resizing_and_reordering() -> Result<(), Box<dyn std::error::Error>> {
+        let store = Arc::new(DatabaseStore::open_in_memory()?);
+        let rt = Arc::new(Runtime::new()?);
+
+        // Seed ecommerce dataset
+        rt.block_on(dispatch(
+            Command::SeedDemo {
+                name: "ecommerce".to_string(),
+            },
+            &store,
+        ));
+
+        let mut gui = gui::DatabaseCraftGui::new(store.clone(), rt.clone());
+        assert_eq!(gui.canvas_root_table.as_deref(), Some("categories"));
+
+        let initial_cols: Vec<String> = gui
+            .canvas_spec
+            .as_ref()
+            .ok_or("missing canvas_spec")?
+            .columns
+            .iter()
+            .map(|c| c.name.clone())
+            .collect();
+        assert_eq!(initial_cols, vec!["id", "name", "slug"]);
+
+        // 1. Test Drag-and-Drop Reordering: move "slug" before "id"
+        gui.reorder_canvas_column("slug", "id", false);
+
+        let reordered_cols: Vec<String> = gui
+            .canvas_spec
+            .as_ref()
+            .ok_or("missing canvas_spec")?
+            .columns
+            .iter()
+            .map(|c| c.name.clone())
+            .collect();
+        assert_eq!(reordered_cols, vec!["slug", "id", "name"]);
+
+        // Verify canvas query executed with reordered columns
+        let res = gui.canvas_result.as_ref().ok_or("missing canvas_result")?;
+        assert_eq!(res["success"], true);
+
+        // 2. Test Column Resizing
+        assert_eq!(gui.get_column_width("slug"), 135.0); // Standard density default
+        gui.set_column_width("slug", 280.0);
+        assert_eq!(gui.get_column_width("slug"), 280.0);
+
+        // Check persistent AST width
+        let slug_col = gui
+            .canvas_spec
+            .as_ref()
+            .and_then(|s| s.columns.iter().find(|c| c.name == "slug"))
+            .ok_or("missing slug column")?;
+        assert_eq!(slug_col.width_px, Some(280));
+
+        // 3. Test Inlined Lookup Width
+        gui.set_column_width("customer_name", 220.0);
+        assert_eq!(gui.get_column_width("customer_name"), 220.0);
+
+        // 4. Test Reset Widths
+        gui.canvas_column_widths.clear();
+        assert_eq!(gui.get_column_width("customer_name"), 135.0);
+
+        Ok(())
+    }
+
     #[tokio::test]
     async fn test_control_channel_tcp_loopback() -> Result<(), Box<dyn std::error::Error>> {
         let store = Arc::new(DatabaseStore::open_in_memory()?);
