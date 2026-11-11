@@ -21,7 +21,7 @@ DatabaseCraft is the pure-Rust relational database, schema engine, and data merg
    - `crates/databasecraft-mcp`: L2 CLI-first binary (`databasecraft-cli`) + MCP `stdio` server (`MCP 2024-11-05`).
    - `crates/databasecraft-app`: L3 desktop app calling `databasecraft-core::dispatch` in-process with zero WebView2.
 3. **Layer 3 (The Universal Command Bus):** CLI subcommands, MCP `tools/call`, and UI actions all route through `Command::dispatch`.
-4. **Layer 4 (Deterministic Demo Datasets):** `ecommerce`, `film`, and `kpi` deterministic datasets provide immediate verifiable schemas.
+4. **Layer 4 (Deterministic Demo Datasets):** `ecommerce`, `film`, `kpi`, and `northwind` (commercial retail orders) deterministic datasets provide immediate verifiable schemas.
 5. **Layer 5 (Definition of Done):** `just check`, `just test`, `just fmt-check` must be green.
 
 ## Stdio Invariant for MCP

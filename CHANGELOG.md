@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.6.0] - 2026-11-11
+
+### Added
+- **Relational Canvas AST & SQLite JSON Query Compiler (SIEUFERD / Ultorg Paradigm)**:
+  - Implemented `crates/databasecraft-core/src/canvas.rs`: AST types `CanvasSpec`, `CanvasColumn`, `CanvasNestedRelation`, `CanvasAggregation`, `CanvasFilter`, `CanvasSort`.
+  - Implemented `CanvasQueryCompiler` generating high-performance SQLite 3.38+ `json_group_array(json_object(...))` queries executing in sub-milliseconds with zero Cartesian join explosion.
+  - Implemented bidirectional schema relationship resolver discovering forward ($N:1$) and reverse ($1:N$) foreign keys.
+  - Added Command Bus variants `Command::CanvasQuery`, `Command::CanvasCompileSql`, and `Command::SchemaRelations`.
+  - Added CLI subcommands `canvas-query`, `canvas-compile`, and `schema-relations`.
+  - Added MCP tools `db_canvas_query`, `db_canvas_compile_sql`, and `db_schema_relations`.
+- **Continuous Spanned Spreadsheet Matrix Grid (`egui 0.37`)**:
+  - Transformed `ActiveTab::Canvas` in `databasecraft-app` from nested cards into a true 2D continuous matrix grid.
+  - Multi-tier table ownership headers: Emerald root band (`🏛️ CUSTOMERS`), Navy subquery bands (`↳ ORDERS`), and Amber rollup bands (`∑ ROLLUPS`).
+  - 1px hairline cell dividers (`#262A32`) with zebra striping (`#121418` / `#181B21`).
+  - 1-click relation sprouting pills (`+ ⤹ Sprout (1:N)`, `+ 🔗 Sprout (N:1)`).
+  - Contextual inline rollups (`SUM`, `COUNT`, `AVG`, `MIN`, `MAX`) calculated in parent headers without row duplication.
+  - Visual density controller: `Compact` (22px row height), `Standard` (28px row height), and `Relaxed` (34px row height).
+  - Global `🎛 Fields & Joins Palette` (`Ctrl+K`) and live `⚡ SQL Drawer`.
+- **Smart Typographic Cell Auto-Formatter**:
+  - Automatic currency formatting with thousand commas and dollar symbols (`$1,850.00`) in green monospace tabular digits.
+  - Status pill badges with soft filled backgrounds and colored outlines (`[DELIVERED]`, `[SHIPPED]`, `[PROCESSING]`, `[PENDING]`, `[NG]`).
+  - Tabular numeric alignment, quantity formatting, and monospace date pills.
+- **Realistic Commercial Benchmark Dataset: Northwind Traders**:
+  - Added `northwind` dataset with 3-tier connected entities: `customers -> orders -> order_items`.
+  - Added top command bar one-click launcher `🚢 Seed: Northwind Traders`.
+- **CTO Resident Watchdog & Generalized Craft Notification Bus**:
+  - Implemented `crates/databasecraft-core/src/notifications.rs`: thread-safe bounded ring buffer with severity ratings (`info`, `warning`, `critical`, `disaster`).
+  - Added `MutationTracker` tracking sliding 60-second mutation velocity on static tables (`employees`, `roles`, `categories`), flagging unexpected high-frequency churn.
+  - Added proactive disk starvation detection for database file and WAL size envelopes with automated `VACUUM` suggestion.
+  - Added commands `notifications.list`, `notifications.ack`, `watchdog.check`, `watchdog.rules`, `watchdog.record_mutation`.
+  - Added CLI subcommands `notifications` and `watchdog`, plus MCP tools `db_notifications_list`, `db_notification_ack`, `db_watchdog_check`.
+  - Added top-bar dynamic alert badge (`🔔 Alerts` / `🚨 X Alerts`) and 11th desktop workspace tab: `🚨 Alerts & Watchdog` with 3-column diagnostic metrics and 1-click remediation actions.
+- **Comprehensive Executive Documentation**:
+  - Created `docs/CFO_RELATIONAL_CANVAS.md`: 24/7 executive cockpit operational guide.
+- **Test Suite**:
+  - Expanded automated test suite from 17 to 27 tests (100% passing, 0 warnings, strict zero-panic `#![deny(clippy::unwrap_used)]`).
+
 ## [0.5.0] - 2026-11-01
 
 ### Added

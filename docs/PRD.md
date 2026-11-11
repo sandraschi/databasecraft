@@ -94,6 +94,9 @@ Following the **ArtCraft Containment Harness** ([`CONTAINMENT_AND_CRATES.md`](..
 | **F23** | 24/7 Executive CFO Cockpit | Ultra-low footprint (sub-30MB RAM) desktop cockpit for continuous financial monitoring. | ✅ Complete |
 | **F24** | Craft Generalized Notification Bus | In-process, TCP Plane 2, and UI operational alert bus with bounded ring buffer and severity classification (`info`, `warning`, `critical`, `disaster`). | ✅ Complete |
 | **F25** | CTO Resident Watchdog & Quiescence Anomaly Detector | Automated monitoring for disk starvation (DB/WAL file growth), unexpected mutations on static tables (`employees`, `roles`, `categories`), and foreign key degradation with 1-click remediation. | ✅ Complete |
+| **F26** | Continuous Spanned Spreadsheet Matrix | Unified 2D perspective table with multi-tier table ownership headers, 1px hairline cell dividers, zebra striping, and visual density controls (`Compact` 22px, `Standard` 28px, `Relaxed` 34px). | ✅ Complete |
+| **F27** | Typographic Smart Cell Auto-Formatter | In-cell type-aware formatting: currency commas (`$1,850.00`), delivery/billing status pill badges (`[DELIVERED]`, `[PROCESSING]`), tabular numeric alignment, and monospace dates. | ✅ Complete |
+| **F28** | Realistic Commercial Benchmark Dataset | Pre-packaged Northwind Traders international orders schema (`customers -> orders -> order_items`) demonstrating 3-tier deep subquery sprouting and live rollups. | ✅ Complete |
 
 ---
 
