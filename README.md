@@ -82,7 +82,8 @@ cargo run -p databasecraft-app -- --control 14113
 ## Deep Documentation
 
 * 📄 [**The CFO & Executive 24/7 Relational Cockpit**](docs/CFO_RELATIONAL_CANVAS.md) — Operational and architectural guide for running continuous financial perspectives.
-* 📄 [**Product Requirements Document (PRD)**](docs/PRD.md) — 5-tier system architecture, functional specs (F1–F23), and containment rules.
+* 📄 [**The CTO Resident Operations Watchdog**](docs/CTO_RESIDENT_WATCHDOG.md) — Autonomous database health, quiescence anomaly detection, and Craft Notification Bus.
+* 📄 [**Product Requirements Document (PRD)**](docs/PRD.md) — 5-tier system architecture, functional specs (F1–F28), and containment rules.
 * 📄 [**Cross-Craft Multi-App Integration**](docs/CROSS_CRAFT_FLOWS.md) — Export payload specifications for DesignCraft, DeckCraft, WordCraft, GridCraft, and PdfCraft.
 * 📄 [**Hybrid RAG & Vector Facility**](docs/RAG_FACILITY.md) — In-process dense vector embeddings and SQLite FTS5 Reciprocal Rank Fusion (RRF).
 
