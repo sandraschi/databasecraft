@@ -1,10 +1,10 @@
 # DatabaseCraft — Handover Document
 
-**Last Updated**: 2026-11-11  
-**Current State**: Production-Ready Relational Canvas, In-Place Cell Editing, Compact Joins & CTO Watchdog (v0.7.0)  
-**Primary Artifact**: [sandraschi/databasecraft](https://github.com/sandraschi/databasecraft)  
-**Registered Port**: `14113`  
-**Automated Tests**: 31 unit & integration tests passing (100% green, 0 warnings)  
+**Last Updated**: 2026-11-11
+**Current State**: Production-Ready Relational Canvas, In-Place Cell Editing, Compact Joins & CTO Watchdog (v0.7.0)
+**Primary Artifact**: [sandraschi/databasecraft](https://github.com/sandraschi/databasecraft)
+**Registered Port**: `14113`
+**Automated Tests**: 31 unit & integration tests passing (100% green, 0 warnings)
 
 ---
 
