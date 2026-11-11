@@ -44,6 +44,11 @@
    - Commands: `notifications.list`, `notifications.ack`, `watchdog.check`, `watchdog.rules`, `watchdog.record_mutation`.
    - Desktop UI: dynamic top-bar alert badge (`🔔 Alerts` / `🚨 X Alerts`) and 11th workspace tab `🚨 Alerts & Watchdog` with 3-column diagnostic metrics and 1-click remediation actions.
 
+6. **Comprehensive Executive & Operational Documentation**:
+   - `docs/CFO_RELATIONAL_CANVAS.md`: Detailed financial guide on running 24/7 continuous relational perspectives, inline rollups, and cross-craft deck publishing.
+   - `docs/CTO_RESIDENT_WATCHDOG.md`: Systems architecture guide for autonomous database health, sliding-window quiescence churn detection, and Craft Notification Bus.
+   - `docs/PRD.md`: Full functional requirements matrix updated through F28 across 11 integrated workspace tabs.
+
 ---
 
 ## 2. Immediate Next Steps
