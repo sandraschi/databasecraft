@@ -1,8 +1,11 @@
 # PRD — DatabaseCraft (Product Requirements Document)
 
-**Status**: Active Core Project (2026-11-01)  
+**Status**: Active Core Project (2026-11-11)  
+**Current Version**: v0.7.0  
 **Parent Standard**: [`mcp-central-docs/standards/RUST_ARTCRAFT_STANDARD.md`](../../mcp-central-docs/standards/RUST_ARTCRAFT_STANDARD.md)  
-**Registered Control Port**: **14113** ([`mcp-central-docs/operations/WEBAPP_PORTS.md`](../../mcp-central-docs/operations/WEBAPP_PORTS.md))
+**Menu Bar Standard**: [`mcp-central-docs/standards/rust-artcraft/CRAFT_MENU_BAR_STANDARD.md`](../../mcp-central-docs/standards/rust-artcraft/CRAFT_MENU_BAR_STANDARD.md)  
+**Registered Control Port**: **14113** ([`mcp-central-docs/operations/WEBAPP_PORTS.md`](../../mcp-central-docs/operations/WEBAPP_PORTS.md))  
+**Automated Tests**: 34 unit & integration tests passing (100% green, 0 warnings)
 
 ---
 
