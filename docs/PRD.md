@@ -102,6 +102,8 @@ Following the **ArtCraft Containment Harness** ([`CONTAINMENT_AND_CRATES.md`](..
 | **F31** | Interactive Canvas Header Sorting | Tri-state column header sorting (`ASC` / `DESC` / `None`) with visual indicators (`▲`, `▼`), recompiling the perspective AST in sub-milliseconds. | ✅ Complete |
 | **F32** | Interactive Column Resizing & Pixel-Perfect Alignment | Dynamic drag-to-resize divider handles on column headers, synchronized column widths from headers down to all row cells, density-aware default sizing, and double-click reset. | ✅ Complete |
 | **F33** | Drag-and-Drop Column Reordering | Interactive column header drag-and-drop with floating drag indicators, animated cyan drop zone target lines, automatic AST column permutation, and instant perspective recompilation. | ✅ Complete |
+| **F34** | Universal Craft 8-Menu Bar & Pattern 2 Navigation | Standardized top menu bar (`File`, `Edit`, `View`, `Insert`, `Modify`, `Commands`, `Window`, `Help`) with menu accelerators, recent databases, dockable toolbar toggles, and status indicators. | ✅ Complete |
+| **F35** | Mandatory 5-Dialog Help & Transparency Suite | Fully interactive modal dialogs for `Command Palette...` (`Ctrl+K`/`Ctrl+Shift+P`), `Keyboard Shortcuts...` (`F1`/`Ctrl+/`), `Project Files & Docs...`, `Licenses & Notices...`, and `About DatabaseCraft`. | ✅ Complete |
 
 ---
 

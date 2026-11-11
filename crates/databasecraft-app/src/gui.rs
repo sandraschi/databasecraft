@@ -10,8 +10,8 @@
 #![deny(clippy::todo)]
 
 use databasecraft_core::canvas::{
-    suggest_display_column, AggFunc, CanvasAggregation, CanvasColumn, CanvasInlinedLookup,
-    CanvasNestedRelation, CanvasSort, CanvasSpec, TableRelations,
+    suggest_display_column, AggFunc, CanvasAggregation, CanvasColumn, CanvasCompiler,
+    CanvasInlinedLookup, CanvasNestedRelation, CanvasSort, CanvasSpec, TableRelations,
 };
 use databasecraft_core::notifications::{CraftNotification, NotificationSeverity};
 use databasecraft_core::{dispatch, models::ExportTarget, Command, APP_VERSION, CONTROL_PORT};
@@ -55,6 +55,16 @@ pub enum ActiveTab {
     Constructor,
     Export,
     Alerts,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActiveDialog {
+    CommandPalette,
+    KeyboardShortcuts,
+    ProjectDocs,
+    LicensesNotices,
+    About,
+    Preferences,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -350,6 +360,13 @@ pub struct DatabaseCraftGui {
     pub canvas_column_widths: std::collections::HashMap<String, f32>,
     pub canvas_dragged_col: Option<String>,
     pub canvas_drop_target: Option<(String, bool)>,
+    // Craft Menu Bar & Help Suite Standard
+    pub active_dialog: Option<ActiveDialog>,
+    pub command_palette_query: String,
+    pub show_nav_rail: bool,
+    pub show_top_command_bar: bool,
+    pub show_status_footer: bool,
+    pub recent_databases: Vec<String>,
 }
 
 impl DatabaseCraftGui {
@@ -429,6 +446,17 @@ impl DatabaseCraftGui {
             canvas_column_widths: std::collections::HashMap::new(),
             canvas_dragged_col: None,
             canvas_drop_target: None,
+            active_dialog: None,
+            command_palette_query: String::new(),
+            show_nav_rail: true,
+            show_top_command_bar: true,
+            show_status_footer: true,
+            recent_databases: vec![
+                "ecommerce.db".to_string(),
+                "northwind.db".to_string(),
+                "film.db".to_string(),
+                "kpi.db".to_string(),
+            ],
         };
 
         app.refresh_notifications();
@@ -1166,6 +1194,817 @@ impl DatabaseCraftGui {
         self.refresh_notifications();
         self.status_message = format!("Acknowledged notification {id}");
     }
+
+    pub fn handle_global_shortcuts(&mut self, ui: &egui::Ui) {
+        if self.active_cell_edit.is_some() {
+            // When editing cell in-place, let the text input handle keystrokes
+            return;
+        }
+
+        let mut toggle_palette = false;
+        let mut toggle_shortcuts = false;
+        let mut toggle_prefs = false;
+        let mut do_undo = false;
+        let mut do_redo = false;
+        let mut switch_tab: Option<ActiveTab> = None;
+
+        ui.input(|i| {
+            // Command Palette (Ctrl+Shift+P or Ctrl+K when not editing text)
+            if (i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::P))
+                || (i.modifiers.command && i.key_pressed(egui::Key::K))
+            {
+                toggle_palette = true;
+            }
+
+            // Keyboard Shortcuts (F1 or Ctrl+/)
+            if i.key_pressed(egui::Key::F1)
+                || (i.modifiers.command && i.key_pressed(egui::Key::Slash))
+            {
+                toggle_shortcuts = true;
+            }
+
+            // Preferences (Ctrl+,)
+            if i.modifiers.command && i.key_pressed(egui::Key::Comma) {
+                toggle_prefs = true;
+            }
+
+            // Undo / Redo
+            if i.modifiers.command && !i.modifiers.shift && i.key_pressed(egui::Key::Z) {
+                do_undo = true;
+            }
+            if (i.modifiers.command && i.key_pressed(egui::Key::Y))
+                || (i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Z))
+            {
+                do_redo = true;
+            }
+
+            // Workspace F-Keys
+            if i.key_pressed(egui::Key::F2) {
+                switch_tab = Some(ActiveTab::Canvas);
+            }
+            if i.key_pressed(egui::Key::F3) {
+                switch_tab = Some(ActiveTab::Tables);
+            }
+            if i.key_pressed(egui::Key::F4) {
+                switch_tab = Some(ActiveTab::Query);
+            }
+            if i.key_pressed(egui::Key::F5) {
+                switch_tab = Some(ActiveTab::Schema);
+            }
+            if i.key_pressed(egui::Key::F6) {
+                switch_tab = Some(ActiveTab::Rag);
+            }
+            if i.key_pressed(egui::Key::F7) {
+                switch_tab = Some(ActiveTab::Profiler);
+            }
+            if i.key_pressed(egui::Key::F8) {
+                switch_tab = Some(ActiveTab::Doctor);
+            }
+            if i.key_pressed(egui::Key::F9) {
+                switch_tab = Some(ActiveTab::Constructor);
+            }
+            if i.key_pressed(egui::Key::F10) {
+                switch_tab = Some(ActiveTab::Export);
+            }
+            if i.key_pressed(egui::Key::F11) {
+                switch_tab = Some(ActiveTab::Alerts);
+            }
+        });
+
+        if toggle_palette {
+            if self.active_dialog == Some(ActiveDialog::CommandPalette) {
+                self.active_dialog = None;
+            } else {
+                self.active_dialog = Some(ActiveDialog::CommandPalette);
+                self.command_palette_query.clear();
+            }
+        }
+        if toggle_shortcuts {
+            if self.active_dialog == Some(ActiveDialog::KeyboardShortcuts) {
+                self.active_dialog = None;
+            } else {
+                self.active_dialog = Some(ActiveDialog::KeyboardShortcuts);
+            }
+        }
+        if toggle_prefs {
+            if self.active_dialog == Some(ActiveDialog::Preferences) {
+                self.active_dialog = None;
+            } else {
+                self.active_dialog = Some(ActiveDialog::Preferences);
+            }
+        }
+        if do_undo {
+            self.undo_cell_mutation();
+        }
+        if do_redo {
+            self.redo_cell_mutation();
+        }
+        if let Some(tab) = switch_tab {
+            self.active_tab = tab;
+            if tab == ActiveTab::Alerts {
+                self.refresh_notifications();
+            }
+        }
+    }
+
+    pub fn render_dialogs(&mut self, ctx: &egui::Context) {
+        let Some(dialog) = self.active_dialog else {
+            return;
+        };
+
+        let emerald_bright = Color32::from_rgb(52, 211, 153);
+        let gold = Color32::from_rgb(251, 191, 36);
+        let sky_blue = Color32::from_rgb(56, 189, 248);
+        let muted_gray = Color32::from_rgb(156, 163, 175);
+        let light_text = Color32::from_rgb(241, 245, 249);
+
+        match dialog {
+            ActiveDialog::CommandPalette => {
+                let mut open = true;
+                let mut clicked_action: Option<PaletteActionKind> = None;
+
+                #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+                enum PaletteActionKind {
+                    NavCanvas,
+                    NavTables,
+                    NavQuery,
+                    NavSchema,
+                    NavRag,
+                    NavProfiler,
+                    NavDoctor,
+                    NavConstructor,
+                    NavExport,
+                    NavAlerts,
+                    SeedNorthwind,
+                    SeedEcommerce,
+                    SeedFilm,
+                    SeedKpi,
+                    UndoCell,
+                    RedoCell,
+                    FieldsPalette,
+                    ResetWidths,
+                    VacuumDb,
+                    RunDiagnostics,
+                    ShortcutsHelp,
+                    DocsHelp,
+                    LicensesHelp,
+                    AboutHelp,
+                    PrefsHelp,
+                }
+
+                struct PaletteItem {
+                    label: &'static str,
+                    desc: &'static str,
+                    cat: &'static str,
+                    action: PaletteActionKind,
+                }
+
+                let items = [
+                    PaletteItem {
+                        label: "View: Relational Canvas (F2)",
+                        desc: "Switch to Non-1NF Continuous Relational Matrix perspective",
+                        cat: "Navigation",
+                        action: PaletteActionKind::NavCanvas,
+                    },
+                    PaletteItem {
+                        label: "View: Table Data Grid (F3)",
+                        desc: "Switch to Raw 1NF Table data browser",
+                        cat: "Navigation",
+                        action: PaletteActionKind::NavTables,
+                    },
+                    PaletteItem {
+                        label: "View: SQL & NLQ Console (F4)",
+                        desc: "Execute direct SQL queries and natural language inquiries",
+                        cat: "Navigation",
+                        action: PaletteActionKind::NavQuery,
+                    },
+                    PaletteItem {
+                        label: "View: Schema & ERD (F5)",
+                        desc: "Inspect foreign key topology, table schemas, and indexes",
+                        cat: "Navigation",
+                        action: PaletteActionKind::NavSchema,
+                    },
+                    PaletteItem {
+                        label: "View: RAG & Vector Embeddings (F6)",
+                        desc: "Perform dense cosine similarity and hybrid BM25 text retrieval",
+                        cat: "Navigation",
+                        action: PaletteActionKind::NavRag,
+                    },
+                    PaletteItem {
+                        label: "View: Query Profiler & EXPLAIN (F7)",
+                        desc: "Analyze SQLite bytecode execution plans and table scans",
+                        cat: "Navigation",
+                        action: PaletteActionKind::NavProfiler,
+                    },
+                    PaletteItem {
+                        label: "View: Database Doctor & Diagnostics (F8)",
+                        desc: "Run integrity checks, detect corruption, and salvage corrupted tables",
+                        cat: "Navigation",
+                        action: PaletteActionKind::NavDoctor,
+                    },
+                    PaletteItem {
+                        label: "View: Blueprint Constructor (F9)",
+                        desc: "Instantiate production schema blueprints (e.g. Stripe, SaaS)",
+                        cat: "Navigation",
+                        action: PaletteActionKind::NavConstructor,
+                    },
+                    PaletteItem {
+                        label: "View: Cross-Craft Plane 2 Exporter (F10)",
+                        desc: "Export data slices to DesignCraft, DeckCraft, WordCraft, GridCraft",
+                        cat: "Navigation",
+                        action: PaletteActionKind::NavExport,
+                    },
+                    PaletteItem {
+                        label: "View: CTO Alerts & Watchdog (F11)",
+                        desc: "Inspect quiescence churn monitoring and disk starvation alerts",
+                        cat: "Navigation",
+                        action: PaletteActionKind::NavAlerts,
+                    },
+                    PaletteItem {
+                        label: "Seed: Northwind Traders (3-Tier Hierarchical)",
+                        desc: "Seed Customers -> Orders (1:N) relational commercial dataset",
+                        cat: "Seed",
+                        action: PaletteActionKind::SeedNorthwind,
+                    },
+                    PaletteItem {
+                        label: "Seed: Ecommerce Catalog",
+                        desc: "Seed multi-table retail inventory with orders and items",
+                        cat: "Seed",
+                        action: PaletteActionKind::SeedEcommerce,
+                    },
+                    PaletteItem {
+                        label: "Seed: Film Production Takes",
+                        desc: "Seed cinema media production scenes, takes, and camera setups",
+                        cat: "Seed",
+                        action: PaletteActionKind::SeedFilm,
+                    },
+                    PaletteItem {
+                        label: "Seed: Executive KPI Metrics",
+                        desc: "Seed ARR, MRR, churn rate, and financial runway metrics",
+                        cat: "Seed",
+                        action: PaletteActionKind::SeedKpi,
+                    },
+                    PaletteItem {
+                        label: "Edit: Undo Cell Mutation (Ctrl+Z)",
+                        desc: "Revert the last in-place cell edit transaction",
+                        cat: "Edit",
+                        action: PaletteActionKind::UndoCell,
+                    },
+                    PaletteItem {
+                        label: "Edit: Redo Cell Mutation (Ctrl+Y)",
+                        desc: "Re-apply the previously undone cell edit",
+                        cat: "Edit",
+                        action: PaletteActionKind::RedoCell,
+                    },
+                    PaletteItem {
+                        label: "Canvas: Fields & Joins Palette (Ctrl+K)",
+                        desc: "Open column visibility, reordering, and relation sprouting modal",
+                        cat: "Canvas",
+                        action: PaletteActionKind::FieldsPalette,
+                    },
+                    PaletteItem {
+                        label: "Canvas: Reset Column Widths",
+                        desc: "Restore all root, inlined lookup, and subquery columns to default width",
+                        cat: "Canvas",
+                        action: PaletteActionKind::ResetWidths,
+                    },
+                    PaletteItem {
+                        label: "Database: Vacuum & Defragment",
+                        desc: "Execute SQLite VACUUM to reclaim space and rebuild indexes",
+                        cat: "Maintenance",
+                        action: PaletteActionKind::VacuumDb,
+                    },
+                    PaletteItem {
+                        label: "Database: Run Doctor Diagnostics",
+                        desc: "Scan for structural inconsistencies, unindexed foreign keys, and corruption",
+                        cat: "Maintenance",
+                        action: PaletteActionKind::RunDiagnostics,
+                    },
+                    PaletteItem {
+                        label: "Help: Keyboard Shortcuts Cheat Sheet (F1 / Ctrl+/)",
+                        desc: "Display full table of workstation hotkeys and navigation shortcuts",
+                        cat: "Help",
+                        action: PaletteActionKind::ShortcutsHelp,
+                    },
+                    PaletteItem {
+                        label: "Help: Project Documentation Viewer",
+                        desc: "Open PRD, CFO Guide, CTO Watchdog, and Tiered Plan documents",
+                        cat: "Help",
+                        action: PaletteActionKind::DocsHelp,
+                    },
+                    PaletteItem {
+                        label: "Help: Licenses & Open Source Notices",
+                        desc: "Inspect pure Rust safety guarantee (#![forbid(unsafe_code)]) and licenses",
+                        cat: "Help",
+                        action: PaletteActionKind::LicensesHelp,
+                    },
+                    PaletteItem {
+                        label: "Help: About DatabaseCraft",
+                        desc: "Version, architecture, port 14113, and craft ecosystem details",
+                        cat: "Help",
+                        action: PaletteActionKind::AboutHelp,
+                    },
+                    PaletteItem {
+                        label: "Preferences: Workstation Settings (Ctrl+,)",
+                        desc: "Adjust theme, canvas density, and operational fences",
+                        cat: "Preferences",
+                        action: PaletteActionKind::PrefsHelp,
+                    },
+                ];
+
+                egui::Window::new("🔍 Command Palette (Ctrl+K / Ctrl+Shift+P)")
+                    .open(&mut open)
+                    .collapsible(false)
+                    .resizable(false)
+                    .default_width(560.0)
+                    .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, -80.0))
+                    .show(ctx, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("Search:").strong().color(emerald_bright));
+                            ui.text_edit_singleline(&mut self.command_palette_query);
+                        });
+                        ui.separator();
+
+                        let q = self.command_palette_query.to_lowercase();
+
+                        egui::ScrollArea::vertical().max_height(340.0).show(ui, |ui| {
+                            let mut matches = 0;
+                            for item in &items {
+                                if q.is_empty()
+                                    || item.label.to_lowercase().contains(&q)
+                                    || item.desc.to_lowercase().contains(&q)
+                                    || item.cat.to_lowercase().contains(&q)
+                                {
+                                    matches += 1;
+                                    ui.group(|ui| {
+                                        ui.horizontal(|ui| {
+                                            if ui
+                                                .button(
+                                                    egui::RichText::new(item.label)
+                                                        .strong()
+                                                        .color(emerald_bright),
+                                                )
+                                                .clicked()
+                                            {
+                                                clicked_action = Some(item.action);
+                                            }
+                                            ui.with_layout(
+                                                egui::Layout::right_to_left(egui::Align::Center),
+                                                |ui| {
+                                                    ui.label(
+                                                        egui::RichText::new(item.cat)
+                                                            .small()
+                                                            .color(muted_gray),
+                                                    );
+                                                },
+                                            );
+                                        });
+                                        ui.label(egui::RichText::new(item.desc).small().color(light_text));
+                                    });
+                                }
+                            }
+                            if matches == 0 {
+                                ui.colored_label(muted_gray, "No matching commands found.");
+                            }
+                        });
+                    });
+
+                if let Some(act) = clicked_action {
+                    self.active_dialog = None;
+                    match act {
+                        PaletteActionKind::NavCanvas => {
+                            self.active_tab = ActiveTab::Canvas;
+                            self.status_message = "Switched to Relational Canvas".to_string();
+                        }
+                        PaletteActionKind::NavTables => {
+                            self.active_tab = ActiveTab::Tables;
+                            self.status_message = "Switched to Table Data Grid".to_string();
+                        }
+                        PaletteActionKind::NavQuery => {
+                            self.active_tab = ActiveTab::Query;
+                            self.status_message = "Switched to SQL & NLQ Console".to_string();
+                        }
+                        PaletteActionKind::NavSchema => {
+                            self.active_tab = ActiveTab::Schema;
+                            self.status_message = "Switched to Schema & ERD".to_string();
+                        }
+                        PaletteActionKind::NavRag => {
+                            self.active_tab = ActiveTab::Rag;
+                            self.status_message = "Switched to RAG & Vectors".to_string();
+                        }
+                        PaletteActionKind::NavProfiler => {
+                            self.active_tab = ActiveTab::Profiler;
+                            self.status_message = "Switched to Query Profiler".to_string();
+                        }
+                        PaletteActionKind::NavDoctor => {
+                            self.active_tab = ActiveTab::Doctor;
+                            self.status_message = "Switched to Database Doctor".to_string();
+                        }
+                        PaletteActionKind::NavConstructor => {
+                            self.active_tab = ActiveTab::Constructor;
+                            self.status_message = "Switched to Blueprint Constructor".to_string();
+                        }
+                        PaletteActionKind::NavExport => {
+                            self.active_tab = ActiveTab::Export;
+                            self.status_message = "Switched to Cross-Craft Exporter".to_string();
+                        }
+                        PaletteActionKind::NavAlerts => {
+                            self.active_tab = ActiveTab::Alerts;
+                            self.refresh_notifications();
+                            self.status_message = "Switched to Alerts & Watchdog".to_string();
+                        }
+                        PaletteActionKind::SeedNorthwind => {
+                            let _ = self.runtime.block_on(dispatch(
+                                Command::SeedDemo {
+                                    name: "northwind".to_string(),
+                                },
+                                &self.store,
+                            ));
+                            self.refresh_tables();
+                            self.selected_table = Some("customers".to_string());
+                            self.load_table_data("customers");
+                            self.init_canvas_for_table("customers");
+                            self.sprout_relation("orders", true);
+                            self.active_tab = ActiveTab::Canvas;
+                            self.status_message = "Seeded Northwind Traders Commercial Dataset: Customers -> Orders (1:N)".to_string();
+                        }
+                        PaletteActionKind::SeedEcommerce => {
+                            let _ = self.runtime.block_on(dispatch(
+                                Command::SeedDemo {
+                                    name: "ecommerce".to_string(),
+                                },
+                                &self.store,
+                            ));
+                            self.refresh_tables();
+                            if let Some(t) = self.tables.first().cloned() {
+                                self.selected_table = Some(t.clone());
+                                self.load_table_data(&t);
+                                self.init_canvas_for_table(&t);
+                            }
+                            self.status_message = "Seeded Ecommerce Catalog".to_string();
+                        }
+                        PaletteActionKind::SeedFilm => {
+                            let _ = self.runtime.block_on(dispatch(
+                                Command::SeedDemo {
+                                    name: "film".to_string(),
+                                },
+                                &self.store,
+                            ));
+                            self.refresh_tables();
+                            if let Some(t) = self.tables.first().cloned() {
+                                self.selected_table = Some(t.clone());
+                                self.load_table_data(&t);
+                                self.init_canvas_for_table(&t);
+                            }
+                            self.status_message = "Seeded Film Production Takes".to_string();
+                        }
+                        PaletteActionKind::SeedKpi => {
+                            let _ = self.runtime.block_on(dispatch(
+                                Command::SeedDemo {
+                                    name: "kpi".to_string(),
+                                },
+                                &self.store,
+                            ));
+                            self.refresh_tables();
+                            if let Some(t) = self.tables.first().cloned() {
+                                self.selected_table = Some(t.clone());
+                                self.load_table_data(&t);
+                                self.init_canvas_for_table(&t);
+                            }
+                            self.status_message = "Seeded Executive KPI Metrics".to_string();
+                        }
+                        PaletteActionKind::UndoCell => {
+                            self.undo_cell_mutation();
+                        }
+                        PaletteActionKind::RedoCell => {
+                            self.redo_cell_mutation();
+                        }
+                        PaletteActionKind::FieldsPalette => {
+                            self.canvas_field_selector_open = true;
+                        }
+                        PaletteActionKind::ResetWidths => {
+                            self.canvas_column_widths.clear();
+                            if let Some(ref mut spec) = self.canvas_spec {
+                                for col in &mut spec.columns {
+                                    col.width_px = None;
+                                }
+                                for inlined in &mut spec.inlined_lookups {
+                                    inlined.width_px = None;
+                                }
+                            }
+                            self.status_message = "Reset column widths to default".to_string();
+                        }
+                        PaletteActionKind::VacuumDb => {
+                            let _ = self.runtime.block_on(dispatch(Command::Vacuum, &self.store));
+                            self.status_message = "Database vacuumed and defragmented".to_string();
+                        }
+                        PaletteActionKind::RunDiagnostics => {
+                            self.active_tab = ActiveTab::Doctor;
+                            self.run_diagnostics();
+                        }
+                        PaletteActionKind::ShortcutsHelp => {
+                            self.active_dialog = Some(ActiveDialog::KeyboardShortcuts);
+                        }
+                        PaletteActionKind::DocsHelp => {
+                            self.active_dialog = Some(ActiveDialog::ProjectDocs);
+                        }
+                        PaletteActionKind::LicensesHelp => {
+                            self.active_dialog = Some(ActiveDialog::LicensesNotices);
+                        }
+                        PaletteActionKind::AboutHelp => {
+                            self.active_dialog = Some(ActiveDialog::About);
+                        }
+                        PaletteActionKind::PrefsHelp => {
+                            self.active_dialog = Some(ActiveDialog::Preferences);
+                        }
+                    }
+                }
+
+                if !open {
+                    self.active_dialog = None;
+                }
+            }
+            ActiveDialog::KeyboardShortcuts => {
+                let mut open = true;
+                egui::Window::new("⌨ Keyboard Shortcuts Cheat Sheet (F1 / Ctrl+/)")
+                    .open(&mut open)
+                    .collapsible(false)
+                    .resizable(false)
+                    .default_width(580.0)
+                    .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                    .show(ctx, |ui| {
+                        egui::ScrollArea::vertical().max_height(460.0).show(ui, |ui| {
+                            egui::Grid::new("shortcuts_grid")
+                                .striped(true)
+                                .min_col_width(140.0)
+                                .show(ui, |ui| {
+                                    ui.label(
+                                        egui::RichText::new("Shortcut")
+                                            .strong()
+                                            .color(emerald_bright),
+                                    );
+                                    ui.label(egui::RichText::new("Action").strong().color(gold));
+                                    ui.label(
+                                        egui::RichText::new("Category")
+                                            .strong()
+                                            .color(muted_gray),
+                                    );
+                                    ui.end_row();
+
+                                    let shortcuts = [
+                                        ("Ctrl/Cmd + K", "Open Command Palette / Fields Palette", "Global / Canvas"),
+                                        ("Ctrl/Cmd + Shift + P", "Open Command Palette", "Global"),
+                                        ("F1 / Ctrl + /", "Open Keyboard Shortcuts Cheat Sheet", "Global"),
+                                        ("Ctrl/Cmd + ,", "Workstation Preferences & Fences", "Global"),
+                                        ("Ctrl/Cmd + Q", "Quit Application Cleanly", "Global"),
+                                        ("F2", "Switch to Relational Canvas (Non-1NF)", "Workspace"),
+                                        ("F3", "Switch to Table Data Grid", "Workspace"),
+                                        ("F4", "Switch to SQL & NLQ Console", "Workspace"),
+                                        ("F5", "Switch to Schema ERD Topology", "Workspace"),
+                                        ("F6", "Switch to RAG & Vector Embeddings", "Workspace"),
+                                        ("F7", "Switch to Query Profiler & EXPLAIN", "Workspace"),
+                                        ("F8", "Switch to Database Doctor & Diagnostics", "Workspace"),
+                                        ("F9", "Switch to Blueprint Constructor", "Workspace"),
+                                        ("F10", "Switch to Cross-Craft Exporter", "Workspace"),
+                                        ("F11", "Switch to CTO Alerts & Watchdog", "Workspace"),
+                                        ("Double-Click Cell", "Edit Cell In-Place (Atomic Write-Back)", "Canvas / Grid"),
+                                        ("Enter / [✓ Commit]", "Commit Cell Edit to SQLite Primary Key", "Canvas / Grid"),
+                                        ("Esc / [✖ Cancel]", "Cancel In-Place Cell Edit", "Canvas / Grid"),
+                                        ("Ctrl/Cmd + Z", "Undo Last Cell Edit Mutation", "Canvas"),
+                                        ("Ctrl/Cmd + Y", "Redo Reverted Cell Edit Mutation", "Canvas"),
+                                        ("Click Column Header", "Tri-State Sort (ASC -> DESC -> None)", "Canvas"),
+                                        ("Drag Column Header", "Interactive Column Reordering", "Canvas"),
+                                        ("Drag Column Divider", "Interactive Column Resizing", "Canvas"),
+                                        ("Double-Click Divider", "Reset Column to Default Density Width", "Canvas"),
+                                    ];
+
+                                    for (sc, action, cat) in &shortcuts {
+                                        ui.label(egui::RichText::new(*sc).strong().color(sky_blue));
+                                        ui.label(egui::RichText::new(*action).color(light_text));
+                                        ui.label(egui::RichText::new(*cat).weak().color(muted_gray));
+                                        ui.end_row();
+                                    }
+                                });
+                        });
+                    });
+
+                if !open {
+                    self.active_dialog = None;
+                }
+            }
+            ActiveDialog::ProjectDocs => {
+                let mut open = true;
+                egui::Window::new("📄 Project Files & Documentation")
+                    .open(&mut open)
+                    .collapsible(false)
+                    .resizable(false)
+                    .default_width(580.0)
+                    .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                    .show(ctx, |ui| {
+                        ui.label(
+                            egui::RichText::new("DatabaseCraft Sovereign Documentation Suite")
+                                .strong()
+                                .color(emerald_bright),
+                        );
+                        ui.label("Located in repo root and docs/ directory:");
+                        ui.separator();
+
+                        let docs = [
+                            (
+                                "docs/PRD.md",
+                                "Product Requirements Document: 33 functional requirements F1–F33, MIT CSAIL SIEUFERD Non-1NF Relational Canvas, In-Place Editing, Column Resizing & Reordering.",
+                            ),
+                            (
+                                "docs/CFO_RELATIONAL_CANVAS.md",
+                                "Executive 24/7 financial workstation guide: continuous perspectives, non-1NF matrix, inline rollups, and cross-craft deck publishing.",
+                            ),
+                            (
+                                "docs/CTO_RESIDENT_WATCHDOG.md",
+                                "Resident database administrator architecture: sliding-window quiescence churn detection, disk starvation envelopes, Craft Notification Bus.",
+                            ),
+                            (
+                                "docs/TIERED_PLAN.md",
+                                "4-Tier ArtCraft delivery and verification plan: Core Relational -> MCP / CLI -> Desktop Workstation -> Menu Bar, Help & Hardening.",
+                            ),
+                            (
+                                "docs/TOOLS.md",
+                                "FastMCP 17-tool specification, stdio JSON-RPC 2.0 protocol, parameter validation, and headless command dispatch.",
+                            ),
+                            (
+                                "CRAFT_MENU_BAR_STANDARD.md",
+                                "Universal Storytold Craft App top menu bar standard (Pattern 2 Viewport-Centric Workstation with 8 menus & 5-item Help suite).",
+                            ),
+                            (
+                                "AGENTS.md & HANDOVER.md",
+                                "Agent engineering protocols: pure Rust, registered control port 14113, zero unsafe, and session continuity.",
+                            ),
+                        ];
+
+                        egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
+                            for (doc_name, doc_desc) in &docs {
+                                ui.group(|ui| {
+                                    ui.label(egui::RichText::new(*doc_name).strong().color(sky_blue));
+                                    ui.label(egui::RichText::new(*doc_desc).small().color(light_text));
+                                });
+                            }
+                        });
+                    });
+
+                if !open {
+                    self.active_dialog = None;
+                }
+            }
+            ActiveDialog::LicensesNotices => {
+                let mut open = true;
+                egui::Window::new("📜 Licenses & Open Source Notices")
+                    .open(&mut open)
+                    .collapsible(false)
+                    .resizable(false)
+                    .default_width(540.0)
+                    .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                    .show(ctx, |ui| {
+                        ui.label(
+                            egui::RichText::new("DatabaseCraft Open Source Notices")
+                                .strong()
+                                .color(emerald_bright),
+                        );
+                        ui.separator();
+                        ui.label("License: Dual MIT OR Apache-2.0");
+                        ui.label("Purity Guarantee: #![forbid(unsafe_code)] enforced across all workspace crates.");
+                        ui.label("Offline Sovereignty: 100% local operation. Zero telemetry, zero analytics, zero external cloud dependencies.");
+                        ui.separator();
+                        ui.strong("Core Safe Rust Dependencies & Standards:");
+                        ui.label("• eframe / egui 0.37 (Emilk / egui contributors) — Immediate-mode GPU UI");
+                        ui.label("• rusqlite 0.33 (rusqlite contributors) — Bundled SQLite with WAL mode");
+                        ui.label("• tokio 1.43 (Tokio contributors) — Async event execution runtime");
+                        ui.label("• serde 1.0 & serde_json 1.0 (Serde contributors) — Type-safe serialization");
+                        ui.label("• clap 4.5 (Clap contributors) — Type-safe command-line argument parsing");
+                        ui.label("• chrono 0.4 (Chrono contributors) — RFC 3339 timestamps and duration mathematics");
+                        ui.separator();
+                        ui.label(
+                            egui::RichText::new("Crafted with pair programming on the fleet workspace.")
+                                .weak()
+                                .color(muted_gray),
+                        );
+                    });
+
+                if !open {
+                    self.active_dialog = None;
+                }
+            }
+            ActiveDialog::About => {
+                let mut open = true;
+                egui::Window::new("ℹ About DatabaseCraft")
+                    .open(&mut open)
+                    .collapsible(false)
+                    .resizable(false)
+                    .default_width(480.0)
+                    .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                    .show(ctx, |ui| {
+                        ui.label(
+                            egui::RichText::new(format!("DatabaseCraft v{APP_VERSION}"))
+                                .size(20.0)
+                                .strong()
+                                .color(emerald_bright),
+                        );
+                        ui.label(
+                            egui::RichText::new("Sovereign Relational Canvas & CTO Database Studio")
+                                .color(gold),
+                        );
+                        ui.separator();
+                        ui.label("Architecture: Pure-Rust ArtCraft pattern (1 Engine, 3 Front Ends: CLI, FastMCP, egui)");
+                        ui.label("Control Channel: Localhost Plane 2 TCP on registered port 14113");
+                        ui.label("Safety: 0 unsafe blocks (#![forbid(unsafe_code)]) • 0 panics • 0 tofus");
+                        ui.label("Relational Model: MIT CSAIL SIEUFERD Non-1NF Relational Perspectives");
+                        ui.label("Durable State: SQLite WAL (Local persistence)");
+                        ui.separator();
+                        ui.label(
+                            egui::RichText::new("Craft ecosystem component for high-performance sovereign data management.")
+                                .weak()
+                                .color(muted_gray),
+                        );
+                    });
+
+                if !open {
+                    self.active_dialog = None;
+                }
+            }
+            ActiveDialog::Preferences => {
+                let mut open = true;
+                egui::Window::new("⚙ Workstation Preferences (Ctrl+,)")
+                    .open(&mut open)
+                    .collapsible(false)
+                    .resizable(false)
+                    .default_width(480.0)
+                    .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                    .show(ctx, |ui| {
+                        ui.label(
+                            egui::RichText::new("Workstation Settings & Operating Fences")
+                                .strong()
+                                .color(emerald_bright),
+                        );
+                        ui.separator();
+
+                        ui.horizontal(|ui| {
+                            ui.label("Interface Theme:");
+                            egui::widgets::global_theme_preference_buttons(ui);
+                        });
+
+                        ui.add_space(6.0);
+                        ui.horizontal(|ui| {
+                            ui.label("Canvas Density:");
+                            if ui
+                                .selectable_label(
+                                    self.canvas_density == CanvasDensity::Compact,
+                                    "Compact",
+                                )
+                                .clicked()
+                            {
+                                self.canvas_density = CanvasDensity::Compact;
+                            }
+                            if ui
+                                .selectable_label(
+                                    self.canvas_density == CanvasDensity::Standard,
+                                    "Standard",
+                                )
+                                .clicked()
+                            {
+                                self.canvas_density = CanvasDensity::Standard;
+                            }
+                            if ui
+                                .selectable_label(
+                                    self.canvas_density == CanvasDensity::Relaxed,
+                                    "Relaxed",
+                                )
+                                .clicked()
+                            {
+                                self.canvas_density = CanvasDensity::Relaxed;
+                            }
+                        });
+
+                        ui.add_space(6.0);
+                        ui.checkbox(&mut self.show_nav_rail, "Show Navigation Rail");
+                        ui.checkbox(&mut self.show_top_command_bar, "Show Quick Action Toolbar");
+                        ui.checkbox(&mut self.show_status_footer, "Show Status Footer");
+                        ui.checkbox(
+                            &mut self.canvas_show_sql_drawer,
+                            "Show Live SQL Drawer in Canvas",
+                        );
+
+                        ui.separator();
+                        ui.strong("Operating Fences & Hostile Input Protection:");
+                        ui.label("• Strict Identifier Regex Fencing: Active (Letters, digits, underscores only)");
+                        ui.label("• Parameterized Query Execution: Active (Zero string interpolation)");
+                        ui.label("• Watchdog Quiescence Churn Threshold: >10 mutations / 60 seconds");
+                        ui.label("• Disk Starvation Warning Envelope: <500 MB remaining");
+                    });
+
+                if !open {
+                    self.active_dialog = None;
+                }
+            }
+        }
+    }
 }
 
 impl eframe::App for DatabaseCraftGui {
@@ -1177,139 +2016,638 @@ impl eframe::App for DatabaseCraftGui {
         let amber = Color32::from_rgb(245, 158, 11);
         let muted_gray = Color32::from_rgb(156, 163, 175);
 
-        // 1. Top Command Bar
-        egui::Panel::top("top_bar").show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.colored_label(emerald, "◆");
-                ui.strong(format!("DatabaseCraft v{APP_VERSION}"));
-                ui.separator();
-                ui.colored_label(
-                    emerald_bright,
-                    format!("Port {CONTROL_PORT} [Plane 2 Active]"),
-                );
-                ui.separator();
+        // 0. Global Keyboard Shortcuts Handler
+        self.handle_global_shortcuts(ui);
 
-                let alert_badge_color = if self.unread_alerts_count > 0 {
-                    Color32::from_rgb(239, 68, 68)
-                } else {
-                    muted_gray
-                };
-                let alert_label = if self.unread_alerts_count > 0 {
-                    format!("🚨 {} Alerts", self.unread_alerts_count)
-                } else {
-                    "🔔 Alerts".to_string()
-                };
-                if ui
-                    .button(
-                        egui::RichText::new(alert_label)
-                            .color(alert_badge_color)
-                            .strong(),
-                    )
-                    .clicked()
-                {
-                    self.active_tab = ActiveTab::Alerts;
-                    self.refresh_notifications();
-                }
-                ui.separator();
-
-                if ui.button("🌱 Seed: Ecommerce").clicked() {
-                    let _ = self.runtime.block_on(dispatch(
-                        Command::SeedDemo {
-                            name: "ecommerce".to_string(),
-                        },
-                        &self.store,
-                    ));
-                    self.refresh_tables();
-                    if let Some(t) = self.tables.first().cloned() {
-                        self.selected_table = Some(t.clone());
-                        self.load_table_data(&t);
+        // 1. Universal Craft Top Menu Bar (Pattern 2 Workstation Standard)
+        egui::Panel::top("top_menubar").show(ui, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
+                // 1. File Menu
+                ui.menu_button("File", |ui| {
+                    if ui.button("New In-Memory Database (Ctrl+N)").clicked() {
+                        self.status_message = "File ▸ New In-Memory Database created".to_string();
+                        ui.close();
                     }
-                    self.status_message = "Seeded Ecommerce Catalog".to_string();
-                }
-
-                if ui.button("🎬 Seed: Film").clicked() {
-                    let _ = self.runtime.block_on(dispatch(
-                        Command::SeedDemo {
-                            name: "film".to_string(),
-                        },
-                        &self.store,
-                    ));
-                    self.refresh_tables();
-                    if let Some(t) = self.tables.first().cloned() {
-                        self.selected_table = Some(t.clone());
-                        self.load_table_data(&t);
+                    if ui.button("Open SQLite Database... (Ctrl+O)").clicked() {
+                        self.status_message = "File ▸ Open SQLite Database...".to_string();
+                        ui.close();
                     }
-                    self.status_message = "Seeded Film Production Takes".to_string();
-                }
-
-                if ui.button("📊 Seed: KPI").clicked() {
-                    let _ = self.runtime.block_on(dispatch(
-                        Command::SeedDemo {
-                            name: "kpi".to_string(),
-                        },
-                        &self.store,
-                    ));
-                    self.refresh_tables();
-                    if let Some(t) = self.tables.first().cloned() {
-                        self.selected_table = Some(t.clone());
-                        self.load_table_data(&t);
+                    ui.menu_button("Open Recent ▸", |ui| {
+                        let recents = self.recent_databases.clone();
+                        for recent in &recents {
+                            if ui.button(recent).clicked() {
+                                self.status_message = format!("Opened recent database: {recent}");
+                                ui.close();
+                            }
+                        }
+                        ui.separator();
+                        if ui.button("Clear Recent Databases").clicked() {
+                            self.recent_databases.clear();
+                            ui.close();
+                        }
+                    });
+                    ui.separator();
+                    if ui.button("Save Perspective Snapshot (Ctrl+S)").clicked() {
+                        self.status_message =
+                            "Perspective snapshot saved to durable SQLite state".to_string();
+                        ui.close();
                     }
-                    self.status_message = "Seeded Executive KPI Metrics".to_string();
-                }
+                    if ui.button("Save Perspective As... (Ctrl+Shift+S)").clicked() {
+                        self.status_message = "File ▸ Save Perspective As...".to_string();
+                        ui.close();
+                    }
+                    ui.separator();
+                    ui.menu_button("Seed Preset ▸", |ui| {
+                        if ui.button("🚢 Northwind Traders (3-Tier Hierarchical)").clicked() {
+                            let _ = self.runtime.block_on(dispatch(
+                                Command::SeedDemo {
+                                    name: "northwind".to_string(),
+                                },
+                                &self.store,
+                            ));
+                            self.refresh_tables();
+                            self.selected_table = Some("customers".to_string());
+                            self.load_table_data("customers");
+                            self.init_canvas_for_table("customers");
+                            self.sprout_relation("orders", true);
+                            self.active_tab = ActiveTab::Canvas;
+                            self.status_message =
+                                "Seeded Northwind Traders Commercial Dataset: Customers -> Orders (1:N)".to_string();
+                            ui.close();
+                        }
+                        if ui.button("🛒 Ecommerce Catalog (Orders & Items)").clicked() {
+                            let _ = self.runtime.block_on(dispatch(
+                                Command::SeedDemo {
+                                    name: "ecommerce".to_string(),
+                                },
+                                &self.store,
+                            ));
+                            self.refresh_tables();
+                            if let Some(t) = self.tables.first().cloned() {
+                                self.selected_table = Some(t.clone());
+                                self.load_table_data(&t);
+                                self.init_canvas_for_table(&t);
+                            }
+                            self.status_message = "Seeded Ecommerce Catalog".to_string();
+                            ui.close();
+                        }
+                        if ui.button("🎬 Cinema Film Library").clicked() {
+                            let _ = self.runtime.block_on(dispatch(
+                                Command::SeedDemo {
+                                    name: "film".to_string(),
+                                },
+                                &self.store,
+                            ));
+                            self.refresh_tables();
+                            if let Some(t) = self.tables.first().cloned() {
+                                self.selected_table = Some(t.clone());
+                                self.load_table_data(&t);
+                                self.init_canvas_for_table(&t);
+                            }
+                            self.status_message = "Seeded Film Production Takes".to_string();
+                            ui.close();
+                        }
+                        if ui.button("📊 Corporate Finance & KPI Metrics").clicked() {
+                            let _ = self.runtime.block_on(dispatch(
+                                Command::SeedDemo {
+                                    name: "kpi".to_string(),
+                                },
+                                &self.store,
+                            ));
+                            self.refresh_tables();
+                            if let Some(t) = self.tables.first().cloned() {
+                                self.selected_table = Some(t.clone());
+                                self.load_table_data(&t);
+                                self.init_canvas_for_table(&t);
+                            }
+                            self.status_message = "Seeded Executive KPI Metrics".to_string();
+                            ui.close();
+                        }
+                    });
+                    ui.separator();
+                    ui.menu_button("Export Delivery Data ▸", |ui| {
+                        if ui.button("DeckCraft JSON Slide Dataset (Ctrl+E)").clicked() {
+                            self.export_target = ExportTarget::DeckCraft;
+                            self.generate_export();
+                            self.active_tab = ActiveTab::Export;
+                            ui.close();
+                        }
+                        if ui.button("DesignCraft Tokens & Vector Asset Merge").clicked() {
+                            self.export_target = ExportTarget::DesignCraft;
+                            self.generate_export();
+                            self.active_tab = ActiveTab::Export;
+                            ui.close();
+                        }
+                        if ui.button("WordCraft Report Document Payload").clicked() {
+                            self.export_target = ExportTarget::WordCraft;
+                            self.generate_export();
+                            self.active_tab = ActiveTab::Export;
+                            ui.close();
+                        }
+                        if ui.button("GridCraft Financial Modeling Matrix").clicked() {
+                            self.export_target = ExportTarget::GridCraft;
+                            self.generate_export();
+                            self.active_tab = ActiveTab::Export;
+                            ui.close();
+                        }
+                    });
+                    ui.separator();
+                    if ui.button("Close Perspective (Ctrl+W)").clicked() {
+                        self.canvas_spec = None;
+                        self.canvas_result = None;
+                        self.status_message = "Closed active perspective".to_string();
+                        ui.close();
+                    }
+                    if ui.button("Quit (Ctrl+Q)").clicked() {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                });
 
-                if ui
-                    .button(
-                        egui::RichText::new("🚢 Seed: Northwind Traders")
-                            .color(Color32::from_rgb(52, 211, 153))
-                            .strong(),
-                    )
-                    .clicked()
-                {
-                    let _ = self.runtime.block_on(dispatch(
-                        Command::SeedDemo {
-                            name: "northwind".to_string(),
-                        },
-                        &self.store,
-                    ));
-                    self.refresh_tables();
-                    self.selected_table = Some("customers".to_string());
-                    self.load_table_data("customers");
-                    self.init_canvas_for_table("customers");
-                    self.sprout_relation("orders", true);
-                    self.active_tab = ActiveTab::Canvas;
-                    self.status_message =
-                        "Seeded Northwind Traders Commercial Dataset: Customers -> Orders (1:N)"
-                            .to_string();
-                }
+                // 2. Edit Menu
+                ui.menu_button("Edit", |ui| {
+                    let can_undo = !self.cell_undo_stack.is_empty();
+                    let can_redo = !self.cell_redo_stack.is_empty();
+                    if ui
+                        .add_enabled(can_undo, egui::Button::new("Undo Cell Edit (Ctrl+Z)"))
+                        .clicked()
+                    {
+                        self.undo_cell_mutation();
+                        ui.close();
+                    }
+                    if ui
+                        .add_enabled(can_redo, egui::Button::new("Redo Cell Edit (Ctrl+Y)"))
+                        .clicked()
+                    {
+                        self.redo_cell_mutation();
+                        ui.close();
+                    }
+                    ui.separator();
+                    if ui.button("Cut Cell / Row (Ctrl+X)").clicked() {
+                        self.status_message = "Edit ▸ Cut".to_string();
+                        ui.close();
+                    }
+                    if ui.button("Copy Selection / TSV (Ctrl+C)").clicked() {
+                        self.status_message = "Copied table selection to clipboard".to_string();
+                        ui.close();
+                    }
+                    if ui.button("Paste Cell Value (Ctrl+V)").clicked() {
+                        self.status_message = "Edit ▸ Paste".to_string();
+                        ui.close();
+                    }
+                    if ui.button("Select All (Ctrl+A)").clicked() {
+                        self.status_message = "Edit ▸ Select All".to_string();
+                        ui.close();
+                    }
+                    ui.separator();
+                    if ui.button("Fields & Joins Palette... (Ctrl+K)").clicked() {
+                        self.canvas_field_selector_open = true;
+                        ui.close();
+                    }
+                    if ui.button("Database Preferences & Fences... (Ctrl+,)").clicked() {
+                        self.active_dialog = Some(ActiveDialog::Preferences);
+                        ui.close();
+                    }
+                });
 
-                if ui.button("🧹 Vacuum").clicked() {
-                    let _ = self
-                        .runtime
-                        .block_on(dispatch(Command::Vacuum, &self.store));
-                    self.status_message = "Database vacuumed and defragmented".to_string();
-                }
+                // 3. View Menu
+                ui.menu_button("View", |ui| {
+                    if ui.button("Relational Canvas (F2)").clicked() {
+                        self.active_tab = ActiveTab::Canvas;
+                        ui.close();
+                    }
+                    if ui.button("Table Grid (F3)").clicked() {
+                        self.active_tab = ActiveTab::Tables;
+                        ui.close();
+                    }
+                    if ui.button("SQL & NLQ Console (F4)").clicked() {
+                        self.active_tab = ActiveTab::Query;
+                        ui.close();
+                    }
+                    if ui.button("Schema ERD Topology (F5)").clicked() {
+                        self.active_tab = ActiveTab::Schema;
+                        ui.close();
+                    }
+                    if ui.button("Vector & Hybrid RAG Store (F6)").clicked() {
+                        self.active_tab = ActiveTab::Rag;
+                        ui.close();
+                    }
+                    if ui.button("Query Profiler & EXPLAIN (F7)").clicked() {
+                        self.active_tab = ActiveTab::Profiler;
+                        ui.close();
+                    }
+                    if ui.button("Database Doctor & Diagnostics (F8)").clicked() {
+                        self.active_tab = ActiveTab::Doctor;
+                        ui.close();
+                    }
+                    if ui.button("Schema Blueprint Constructor (F9)").clicked() {
+                        self.active_tab = ActiveTab::Constructor;
+                        ui.close();
+                    }
+                    if ui.button("Cross-Craft Plane 2 Exporter (F10)").clicked() {
+                        self.active_tab = ActiveTab::Export;
+                        ui.close();
+                    }
+                    if ui.button("CTO Alerts & Watchdog (F11)").clicked() {
+                        self.active_tab = ActiveTab::Alerts;
+                        self.refresh_notifications();
+                        ui.close();
+                    }
+                    ui.separator();
+                    ui.menu_button("Canvas Density ▸", |ui| {
+                        if ui
+                            .selectable_label(
+                                self.canvas_density == CanvasDensity::Compact,
+                                "Compact (22px rows)",
+                            )
+                            .clicked()
+                        {
+                            self.canvas_density = CanvasDensity::Compact;
+                            ui.close();
+                        }
+                        if ui
+                            .selectable_label(
+                                self.canvas_density == CanvasDensity::Standard,
+                                "Standard (28px rows)",
+                            )
+                            .clicked()
+                        {
+                            self.canvas_density = CanvasDensity::Standard;
+                            ui.close();
+                        }
+                        if ui
+                            .selectable_label(
+                                self.canvas_density == CanvasDensity::Relaxed,
+                                "Relaxed (34px rows)",
+                            )
+                            .clicked()
+                        {
+                            self.canvas_density = CanvasDensity::Relaxed;
+                            ui.close();
+                        }
+                    });
+                    ui.separator();
+                    if ui
+                        .checkbox(&mut self.canvas_show_sql_drawer, "Toggle Live SQL Drawer")
+                        .clicked()
+                    {
+                        ui.close();
+                    }
+                    if ui.button("Reset Column Widths").clicked() {
+                        self.canvas_column_widths.clear();
+                        if let Some(ref mut spec) = self.canvas_spec {
+                            for col in &mut spec.columns {
+                                col.width_px = None;
+                            }
+                            for inlined in &mut spec.inlined_lookups {
+                                inlined.width_px = None;
+                            }
+                        }
+                        self.status_message = "Reset column widths to default".to_string();
+                        ui.close();
+                    }
+                    ui.separator();
+                    ui.checkbox(&mut self.show_nav_rail, "Show Navigation Rail");
+                    ui.checkbox(&mut self.show_top_command_bar, "Show Quick Action Toolbar");
+                    ui.checkbox(&mut self.show_status_footer, "Show Status Footer");
+                });
 
+                // 4. Insert Menu (DatabaseCraft Relational Domain)
+                ui.menu_button("Insert", |ui| {
+                    if ui.button("Sprout Reverse Relation (1:N Subtable)...").clicked() {
+                        self.canvas_field_selector_open = true;
+                        ui.close();
+                    }
+                    if ui.button("Sprout Forward Relation (N:1 Lookup)...").clicked() {
+                        self.canvas_field_selector_open = true;
+                        ui.close();
+                    }
+                    if ui.button("Inline Foreign Key Label (Compact Join)...").clicked() {
+                        self.canvas_field_selector_open = true;
+                        ui.close();
+                    }
+                    if ui.button("Add Aggregate Rollup (SUM / COUNT / AVG)...").clicked() {
+                        self.canvas_field_selector_open = true;
+                        ui.close();
+                    }
+                    ui.separator();
+                    if ui.button("Insert Document into Vector RAG...").clicked() {
+                        self.active_tab = ActiveTab::Rag;
+                        ui.close();
+                    }
+                    if ui.button("Synthesize Synthetic Table Data...").clicked() {
+                        self.active_tab = ActiveTab::AiWorkflows;
+                        self.ai_subtab = AiSubTab::Synthetic;
+                        ui.close();
+                    }
+                });
+
+                // 5. Modify Menu (Transformations & Mutations)
+                ui.menu_button("Modify", |ui| {
+                    if ui.button("Fields & Joins Palette... (Ctrl+K)").clicked() {
+                        self.canvas_field_selector_open = true;
+                        ui.close();
+                    }
+                    if ui.button("Reorder Columns & Fields...").clicked() {
+                        self.canvas_field_selector_open = true;
+                        ui.close();
+                    }
+                    if ui.button("Reset All Column Widths").clicked() {
+                        self.canvas_column_widths.clear();
+                        self.status_message = "All column widths reset".to_string();
+                        ui.close();
+                    }
+                    ui.separator();
+                    if ui.button("Vacuum & Optimize SQLite Database").clicked() {
+                        let _ = self.runtime.block_on(dispatch(Command::Vacuum, &self.store));
+                        self.status_message = "Database vacuumed and defragmented".to_string();
+                        ui.close();
+                    }
+                    if ui.button("Diagnose & Auto-Repair Database").clicked() {
+                        self.run_diagnostics();
+                        self.active_tab = ActiveTab::Doctor;
+                        ui.close();
+                    }
+                });
+
+                // 6. Commands Menu (Algorithmic & Compute Passes)
+                ui.menu_button("Commands", |ui| {
+                    if ui.button("Compile Relational Canvas to SQLite JSON").clicked() {
+                        if let Some(ref spec) = self.canvas_spec {
+                            if let Ok(sql) = CanvasCompiler::compile_sql(spec) {
+                                self.sql_query = sql;
+                                self.status_message =
+                                    "Compiled Canvas perspective to SQLite JSON AST".to_string();
+                            }
+                        }
+                        ui.close();
+                    }
+                    if ui.button("Execute Natural Language to SQL (AI NLQ)").clicked() {
+                        self.active_tab = ActiveTab::AiWorkflows;
+                        self.ai_subtab = AiSubTab::Nlq;
+                        ui.close();
+                    }
+                    if ui.button("Run AI Deduplication Analysis (Fuzzy & Exact)").clicked() {
+                        self.active_tab = ActiveTab::AiWorkflows;
+                        self.ai_subtab = AiSubTab::Dedupe;
+                        ui.close();
+                    }
+                    if ui.button("Run AI Schema Advisor & Index Recommender").clicked() {
+                        self.run_advisor();
+                        self.active_tab = ActiveTab::AiWorkflows;
+                        self.ai_subtab = AiSubTab::Advisor;
+                        ui.close();
+                    }
+                    if ui.button("Compute Hybrid BM25 + Dense Vector Search").clicked() {
+                        self.run_rag_search();
+                        self.active_tab = ActiveTab::Rag;
+                        ui.close();
+                    }
+                    ui.separator();
+                    if ui.button("Evaluate Quiescent Table Mutation Churn").clicked() {
+                        self.active_tab = ActiveTab::Alerts;
+                        self.refresh_notifications();
+                        ui.close();
+                    }
+                    if ui.button("Check Disk & WAL Starvation Envelopes").clicked() {
+                        let check =
+                            self.runtime.block_on(dispatch(Command::WatchdogCheck, &self.store));
+                        self.watchdog_last_check = Some(check);
+                        self.active_tab = ActiveTab::Alerts;
+                        ui.close();
+                    }
+                });
+
+                // 7. Window Menu
+                ui.menu_button("Window", |ui| {
+                    if ui.button("Reset Panel Layout").clicked() {
+                        self.show_nav_rail = true;
+                        self.show_top_command_bar = true;
+                        self.show_status_footer = true;
+                        self.status_message = "Reset layout to default workstation docking".to_string();
+                        ui.close();
+                    }
+                    ui.separator();
+                    if ui.button("Workspace: Relational Canvas").clicked() {
+                        self.active_tab = ActiveTab::Canvas;
+                        ui.close();
+                    }
+                    if ui.button("Workspace: Table Grid").clicked() {
+                        self.active_tab = ActiveTab::Tables;
+                        ui.close();
+                    }
+                    if ui.button("Workspace: SQL & NLQ Console").clicked() {
+                        self.active_tab = ActiveTab::Query;
+                        ui.close();
+                    }
+                    if ui.button("Workspace: Schema ERD").clicked() {
+                        self.active_tab = ActiveTab::Schema;
+                        ui.close();
+                    }
+                    if ui.button("Workspace: Vector RAG").clicked() {
+                        self.active_tab = ActiveTab::Rag;
+                        ui.close();
+                    }
+                    if ui.button("Workspace: Alerts & Watchdog").clicked() {
+                        self.active_tab = ActiveTab::Alerts;
+                        self.refresh_notifications();
+                        ui.close();
+                    }
+                    ui.separator();
+                    ui.checkbox(&mut self.show_nav_rail, "Navigation Rail");
+                    ui.checkbox(&mut self.show_top_command_bar, "Top Action Toolbar");
+                    ui.checkbox(&mut self.show_status_footer, "Status Footer");
+                    ui.checkbox(&mut self.canvas_show_sql_drawer, "Live SQL Drawer");
+                });
+
+                // 8. Help Menu (Mandatory Storytold 5-Item Transparency Suite)
+                ui.menu_button("Help", |ui| {
+                    if ui.button("Command Palette... (Ctrl+Shift+P / Ctrl+K)").clicked() {
+                        self.active_dialog = Some(ActiveDialog::CommandPalette);
+                        self.command_palette_query.clear();
+                        ui.close();
+                    }
+                    if ui.button("Keyboard Shortcuts... (F1 / Ctrl+/)").clicked() {
+                        self.active_dialog = Some(ActiveDialog::KeyboardShortcuts);
+                        ui.close();
+                    }
+                    if ui.button("Project Files & Docs...").clicked() {
+                        self.active_dialog = Some(ActiveDialog::ProjectDocs);
+                        ui.close();
+                    }
+                    if ui.button("Licenses & Notices...").clicked() {
+                        self.active_dialog = Some(ActiveDialog::LicensesNotices);
+                        ui.close();
+                    }
+                    ui.separator();
+                    if ui.button("About DatabaseCraft").clicked() {
+                        self.active_dialog = Some(ActiveDialog::About);
+                        ui.close();
+                    }
+                });
+
+                // Right-aligned status indicators
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    egui::widgets::global_theme_preference_buttons(ui);
+                    ui.label(
+                        egui::RichText::new("100% Safe Rust • Port 14113 • Zero Tofu")
+                            .color(Color32::from_rgb(52, 211, 153))
+                            .small(),
+                    );
+                    ui.separator();
+                    if let Some(ref t) = self.canvas_root_table {
+                        ui.label(
+                            egui::RichText::new(format!("Perspective: {t}"))
+                                .color(Color32::from_rgb(203, 213, 225))
+                                .small(),
+                        );
+                    }
                 });
             });
         });
 
-        // 2. Bottom Status Bar
-        egui::Panel::bottom("status_bar").show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.colored_label(emerald, "●");
-                ui.label(&self.status_message);
-                if let Some(ms) = self.query_latency_ms {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.colored_label(muted_gray, format!("Latency: {} ms", ms));
-                    });
-                }
-            });
-        });
+        // 2. Top Command Bar (Quick Actions Toolbar)
+        if self.show_top_command_bar {
+            egui::Panel::top("top_bar").show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.colored_label(emerald, "◆");
+                    ui.strong(format!("DatabaseCraft v{APP_VERSION}"));
+                    ui.separator();
+                    ui.colored_label(
+                        emerald_bright,
+                        format!("Port {CONTROL_PORT} [Plane 2 Active]"),
+                    );
+                    ui.separator();
 
-        // 3. Left Navigation Rail
-        egui::Panel::left("nav_rail")
+                    let alert_badge_color = if self.unread_alerts_count > 0 {
+                        Color32::from_rgb(239, 68, 68)
+                    } else {
+                        muted_gray
+                    };
+                    let alert_label = if self.unread_alerts_count > 0 {
+                        format!("🚨 {} Alerts", self.unread_alerts_count)
+                    } else {
+                        "🔔 Alerts".to_string()
+                    };
+                    if ui
+                        .button(
+                            egui::RichText::new(alert_label)
+                                .color(alert_badge_color)
+                                .strong(),
+                        )
+                        .clicked()
+                    {
+                        self.active_tab = ActiveTab::Alerts;
+                        self.refresh_notifications();
+                    }
+                    ui.separator();
+
+                    if ui.button("🌱 Seed: Ecommerce").clicked() {
+                        let _ = self.runtime.block_on(dispatch(
+                            Command::SeedDemo {
+                                name: "ecommerce".to_string(),
+                            },
+                            &self.store,
+                        ));
+                        self.refresh_tables();
+                        if let Some(t) = self.tables.first().cloned() {
+                            self.selected_table = Some(t.clone());
+                            self.load_table_data(&t);
+                        }
+                        self.status_message = "Seeded Ecommerce Catalog".to_string();
+                    }
+
+                    if ui.button("🎬 Seed: Film").clicked() {
+                        let _ = self.runtime.block_on(dispatch(
+                            Command::SeedDemo {
+                                name: "film".to_string(),
+                            },
+                            &self.store,
+                        ));
+                        self.refresh_tables();
+                        if let Some(t) = self.tables.first().cloned() {
+                            self.selected_table = Some(t.clone());
+                            self.load_table_data(&t);
+                        }
+                        self.status_message = "Seeded Film Production Takes".to_string();
+                    }
+
+                    if ui.button("📊 Seed: KPI").clicked() {
+                        let _ = self.runtime.block_on(dispatch(
+                            Command::SeedDemo {
+                                name: "kpi".to_string(),
+                            },
+                            &self.store,
+                        ));
+                        self.refresh_tables();
+                        if let Some(t) = self.tables.first().cloned() {
+                            self.selected_table = Some(t.clone());
+                            self.load_table_data(&t);
+                        }
+                        self.status_message = "Seeded Executive KPI Metrics".to_string();
+                    }
+
+                    if ui
+                        .button(
+                            egui::RichText::new("🚢 Seed: Northwind Traders")
+                                .color(Color32::from_rgb(52, 211, 153))
+                                .strong(),
+                        )
+                        .clicked()
+                    {
+                        let _ = self.runtime.block_on(dispatch(
+                            Command::SeedDemo {
+                                name: "northwind".to_string(),
+                            },
+                            &self.store,
+                        ));
+                        self.refresh_tables();
+                        self.selected_table = Some("customers".to_string());
+                        self.load_table_data("customers");
+                        self.init_canvas_for_table("customers");
+                        self.sprout_relation("orders", true);
+                        self.active_tab = ActiveTab::Canvas;
+                        self.status_message =
+                            "Seeded Northwind Traders Commercial Dataset: Customers -> Orders (1:N)"
+                                .to_string();
+                    }
+
+                    if ui.button("🧹 Vacuum").clicked() {
+                        let _ = self
+                            .runtime
+                            .block_on(dispatch(Command::Vacuum, &self.store));
+                        self.status_message = "Database vacuumed and defragmented".to_string();
+                    }
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        egui::widgets::global_theme_preference_buttons(ui);
+                    });
+                });
+            });
+        }
+
+        // 3. Bottom Status Bar
+        if self.show_status_footer {
+            egui::Panel::bottom("status_bar").show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.colored_label(emerald, "●");
+                    ui.label(&self.status_message);
+                    ui.separator();
+                    ui.colored_label(emerald_bright, "100% Safe Rust • Port 14113");
+                    if let Some(ref t) = self.canvas_root_table {
+                        ui.separator();
+                        ui.colored_label(sky_blue, format!("Active Perspective: {t}"));
+                    }
+                    if let Some(ms) = self.query_latency_ms {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.colored_label(muted_gray, format!("Latency: {} ms", ms));
+                        });
+                    }
+                });
+            });
+        }
+
+        // 4. Left Navigation Rail
+        if self.show_nav_rail {
+            egui::Panel::left("nav_rail")
             .min_size(210.0)
             .show(ui, |ui| {
                 ui.add_space(6.0);
@@ -1442,6 +2780,7 @@ impl eframe::App for DatabaseCraftGui {
                     }
                 }
             });
+        }
 
         // 4. Central Workspace Area
         egui::CentralPanel::default().show(ui, |ui| match self.active_tab {
@@ -3886,5 +5225,8 @@ impl eframe::App for DatabaseCraftGui {
                 }
             }
         });
+
+        // 5. Render Active Help Suite & Preference Dialogs
+        self.render_dialogs(ui.ctx());
     }
 }

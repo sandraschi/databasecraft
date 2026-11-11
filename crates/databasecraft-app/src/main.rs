@@ -665,4 +665,68 @@ mod tests {
         assert!(text.contains("databasecraft"));
         Ok(())
     }
+
+    #[test]
+    fn test_menu_bar_and_help_suite_integration() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::gui::{ActiveDialog, ActiveTab};
+        let store = Arc::new(DatabaseStore::open_in_memory()?);
+        let rt = Arc::new(tokio::runtime::Runtime::new()?);
+        let mut app = gui::DatabaseCraftGui::new(store.clone(), rt.clone());
+
+        // 1. Verify default menu bar workstation visibility flags
+        assert!(app.show_nav_rail);
+        assert!(app.show_top_command_bar);
+        assert!(app.show_status_footer);
+        assert_eq!(app.recent_databases.len(), 4);
+        assert_eq!(app.recent_databases[0], "ecommerce.db");
+        assert_eq!(app.recent_databases[1], "northwind.db");
+
+        // 2. Test Help Suite dialog state transitions
+        assert_eq!(app.active_dialog, None);
+
+        // Command Palette
+        app.active_dialog = Some(ActiveDialog::CommandPalette);
+        app.command_palette_query = "canvas".to_string();
+        assert_eq!(app.active_dialog, Some(ActiveDialog::CommandPalette));
+
+        // Keyboard Shortcuts
+        app.active_dialog = Some(ActiveDialog::KeyboardShortcuts);
+        assert_eq!(app.active_dialog, Some(ActiveDialog::KeyboardShortcuts));
+
+        // Project Docs
+        app.active_dialog = Some(ActiveDialog::ProjectDocs);
+        assert_eq!(app.active_dialog, Some(ActiveDialog::ProjectDocs));
+
+        // Licenses & Notices
+        app.active_dialog = Some(ActiveDialog::LicensesNotices);
+        assert_eq!(app.active_dialog, Some(ActiveDialog::LicensesNotices));
+
+        // About
+        app.active_dialog = Some(ActiveDialog::About);
+        assert_eq!(app.active_dialog, Some(ActiveDialog::About));
+
+        // Preferences
+        app.active_dialog = Some(ActiveDialog::Preferences);
+        assert_eq!(app.active_dialog, Some(ActiveDialog::Preferences));
+
+        // Close dialog
+        app.active_dialog = None;
+        assert_eq!(app.active_dialog, None);
+
+        // 3. Test toggle panel visibility
+        app.show_nav_rail = false;
+        app.show_top_command_bar = false;
+        app.show_status_footer = false;
+        assert!(!app.show_nav_rail);
+        assert!(!app.show_top_command_bar);
+        assert!(!app.show_status_footer);
+
+        // 4. Test workspace switching
+        app.active_tab = ActiveTab::Canvas;
+        assert_eq!(app.active_tab, ActiveTab::Canvas);
+        app.active_tab = ActiveTab::Alerts;
+        assert_eq!(app.active_tab, ActiveTab::Alerts);
+
+        Ok(())
+    }
 }

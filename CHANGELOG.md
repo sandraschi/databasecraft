@@ -10,6 +10,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.7.0] - 2026-11-11
 
 ### Added
+- **Universal Craft 8-Menu Bar & Help Suite Standard**:
+  - Implemented the full Storytold Craft Application Menu Bar Standard ([`CRAFT_MENU_BAR_STANDARD.md`](../../mcp-central-docs/standards/rust-artcraft/CRAFT_MENU_BAR_STANDARD.md)) under Pattern 2 (Viewport-Centric Workstation).
+  - Pinned `egui::Panel::top("top_menubar")` featuring the universal 8-menu structure:
+    - **`File`**: New In-Memory Database (`Ctrl+N`), Open SQLite Database (`Ctrl+O`), Open Recent ▸ (with persistent list & clearing), Save Perspective Snapshot (`Ctrl+S`), Save Perspective As (`Ctrl+Shift+S`), Seed Presets ▸ (`Northwind`, `Ecommerce`, `Film`, `KPI`), Export Delivery Data ▸ (`DeckCraft`, `DesignCraft`, `WordCraft`, `GridCraft`), Close Perspective (`Ctrl+W`), Quit (`Ctrl+Q`).
+    - **`Edit`**: Undo Cell Edit (`Ctrl+Z`), Redo Cell Edit (`Ctrl+Y`), Cut (`Ctrl+X`), Copy (`Ctrl+C`), Paste (`Ctrl+V`), Select All (`Ctrl+A`), Fields & Joins Palette (`Ctrl+K`), Preferences & Fences (`Ctrl+,`).
+    - **`View`**: 10 direct workspace accelerators (`F2` Canvas, `F3` Tables, `F4` SQL Console, `F5` Schema ERD, `F6` RAG, `F7` Profiler, `F8` Doctor, `F9` Constructor, `F10` Exporter, `F11` Alerts & Watchdog), Canvas Density switcher (`Compact`, `Standard`, `Relaxed`), Live SQL Drawer toggle, Reset Column Widths, and dock visibility toggles (Navigation Rail, Quick Action Toolbar, Status Footer).
+    - **`Insert`**: Sprout Reverse Relation (1:N Subtable), Sprout Forward Relation (N:1 Lookup), Inline Foreign Key Label (Compact Join), Add Aggregate Rollup (SUM/COUNT/AVG), Insert Document into Vector RAG, Synthesize Synthetic Table Data.
+    - **`Modify`**: Fields & Joins Palette, Reorder Columns & Fields, Reset All Column Widths, Vacuum & Defragment SQLite Database, Diagnose & Auto-Repair Database.
+    - **`Commands`**: Compile Canvas to SQLite JSON AST, Execute AI Natural Language Query (NLQ), Run Deduplication Analysis, Run AI Schema Advisor & Index Recommender, Compute Hybrid BM25 + Dense Vector Search, Evaluate Quiescent Table Mutation Churn, Check Disk & WAL Starvation Envelopes.
+    - **`Window`**: Reset Panel Layout, direct workspace focus, and modular visibility toggles for Navigation Rail, Top Action Toolbar, Status Footer, and Live SQL Drawer.
+    - **`Help`**: Mandatory 5-dialog transparency suite.
+  - Implemented the complete 5-dialog modal Help suite with center anchoring and scrollable viewports:
+    - `🔍 Command Palette` (`Ctrl+K` / `Ctrl+Shift+P`): Live searchable fuzzy query over all engine actions, navigation targets, seeds, and maintenance routines with instant one-click execution.
+    - `⌨ Keyboard Shortcuts Cheat Sheet` (`F1` / `Ctrl+/`): Categorized table of global, workspace, canvas matrix, and cell editing hotkeys.
+    - `📄 Project Files & Documentation`: Interactive document browser linking to `PRD.md`, `CFO_RELATIONAL_CANVAS.md`, `CTO_RESIDENT_WATCHDOG.md`, `TIERED_PLAN.md`, `TOOLS.md`, and `CRAFT_MENU_BAR_STANDARD.md`.
+    - `📜 Licenses & Open Source Notices`: Pure Rust `#![forbid(unsafe_code)]` compliance, offline sovereignty guarantee, dual MIT/Apache-2.0 notice, and third-party crate attributions.
+    - `ℹ About DatabaseCraft`: Application version, architecture overview, registered control port `14113` [Plane 2 Active], and ecosystem role.
+  - Added Workstation Preferences dialog (`Ctrl+,`) with theme switcher, density controls, dock visibility flags, and security fence monitors.
+  - Global hotkeys handler intercepting function keys (`F1`–`F11`), `Ctrl+K`, `Ctrl+Shift+P`, `Ctrl+,`, `Ctrl+Z`, `Ctrl+Y` with safe cell editing isolation.
 - **Interactive Column Resizing & Pixel-Perfect 2D Grid Alignment**:
   - Implemented real-time drag divider handles (6px interactive hit zone) between column headers in Tier 2 with visual color highlights (emerald on hover, electric cyan while dragging).
   - Synchronized pixel-perfect widths enforced from Tier 2 column headers down to every data cell in the continuous spreadsheet matrix.
@@ -40,7 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Visual glyph indicators (`▲` for ascending, `▼` for descending) directly in column headers.
   - Recompiles the perspective AST and refetches data dynamically.
 - **Automated Tests**:
-  - Expanded test suite from 27 to 33 tests covering interactive column resizing, drag-and-drop column reordering, AST column permutations, in-place cell editing, compact joins, primary key extraction, mutation auditing, and GUI undo/redo stacks.
+  - Expanded test suite to 34 tests covering the Craft Menu Bar standard, modal help dialog transitions, command palette query filtering, dock panel toggles, interactive column resizing, drag-and-drop column reordering, AST column permutations, in-place cell editing, compact joins, primary key extraction, mutation auditing, and GUI undo/redo stacks.
 
 ## [0.6.0] - 2026-11-11
 

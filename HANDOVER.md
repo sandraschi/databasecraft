@@ -1,16 +1,36 @@
 # DatabaseCraft — Handover Document
 
 **Last Updated**: 2026-11-11
-**Current State**: Production-Ready Relational Canvas, In-Place Cell Editing, Column Resizing & Drag-and-Drop Reordering, Compact Joins & CTO Watchdog (v0.7.0)
+**Current State**: Production-Ready Relational Canvas, Universal Craft 8-Menu Bar & Help Suite, In-Place Cell Editing, Column Resizing & Drag-and-Drop Reordering, Compact Joins & CTO Watchdog (v0.7.0)
 **Primary Artifact**: [sandraschi/databasecraft](https://github.com/sandraschi/databasecraft)
 **Registered Port**: `14113`
-**Automated Tests**: 33 unit & integration tests passing (100% green, 0 warnings)
+**Automated Tests**: 34 unit & integration tests passing (100% green, 0 warnings)
 
 ---
 
 ## 1. What Was Done (v0.7.0 Release)
 
-1. **Interactive Drag-and-Drop Column Reordering & Column Resizing**:
+1. **Universal Storytold Craft 8-Menu Bar & Help Suite Standard**:
+   - Implemented top menu bar (`egui::Panel::top("top_menubar")`) strictly adhering to [`CRAFT_MENU_BAR_STANDARD.md`](../../mcp-central-docs/standards/rust-artcraft/CRAFT_MENU_BAR_STANDARD.md) under Pattern 2 (Viewport-Centric Workstation).
+   - Universal 8-menu structure:
+     - `File`: New In-Memory Database (`Ctrl+N`), Open SQLite Database (`Ctrl+O`), Open Recent ▸ (persistent DB list & clearing), Save Perspective Snapshot (`Ctrl+S`), Save Perspective As (`Ctrl+Shift+S`), Seed Presets ▸ (`Northwind`, `Ecommerce`, `Film`, `KPI`), Export Delivery Data ▸ (`DeckCraft`, `DesignCraft`, `WordCraft`, `GridCraft`), Close Perspective (`Ctrl+W`), Quit (`Ctrl+Q`).
+     - `Edit`: Undo Cell Edit (`Ctrl+Z`), Redo Cell Edit (`Ctrl+Y`), Cut (`Ctrl+X`), Copy (`Ctrl+C`), Paste (`Ctrl+V`), Select All (`Ctrl+A`), Fields & Joins Palette (`Ctrl+K`), Preferences & Fences (`Ctrl+,`).
+     - `View`: Direct workspace navigation (`F2`–`F11`), Canvas Density (`Compact`, `Standard`, `Relaxed`), Live SQL Drawer toggle, Reset Column Widths, and dock visibility toggles (Navigation Rail, Quick Action Toolbar, Status Footer).
+     - `Insert`: Sprout Reverse Relation (1:N Subtable), Sprout Forward Relation (N:1 Lookup), Inline Foreign Key Label (Compact Join), Add Aggregate Rollup, Insert Document into Vector RAG, Synthesize Synthetic Table Data.
+     - `Modify`: Fields & Joins Palette, Reorder Columns & Fields, Reset All Column Widths, Vacuum & Optimize Database, Diagnose & Auto-Repair Database.
+     - `Commands`: Compile Canvas to SQLite JSON AST, Execute AI Natural Language Query (NLQ), Run Deduplication Analysis, Run AI Schema Advisor & Index Recommender, Compute Hybrid BM25 + Dense Vector Search, Evaluate Quiescent Table Mutation Churn, Check Disk & WAL Starvation Envelopes.
+     - `Window`: Reset Panel Layout, direct workspace focus, and modular visibility toggles for Navigation Rail, Top Action Toolbar, Status Footer, and Live SQL Drawer.
+     - `Help`: Standardized 5-item transparency suite.
+   - Built full modal dialog suite centered on screen:
+     - `🔍 Command Palette` (`Ctrl+K` / `Ctrl+Shift+P`): Live searchable query matching all actions, workspaces, seed datasets, and maintenance tasks with one-click instant execution.
+     - `⌨ Keyboard Shortcuts Cheat Sheet` (`F1` / `Ctrl+/`): Categorized table of global, workspace, canvas, and cell editing keys.
+     - `📄 Project Files & Documentation`: Interactive document browser linking to PRD, CFO Guide, CTO Watchdog, Tiered Plan, Tools, and Craft Menu Bar Standard.
+     - `📜 Licenses & Open Source Notices`: Pure Rust `#![forbid(unsafe_code)]` compliance, offline sovereignty guarantee, dual MIT/Apache-2.0 notice, and third-party crate attributions.
+     - `ℹ About DatabaseCraft`: Application SemVer, architecture overview, registered control port `14113` [Plane 2 Active], and ecosystem role.
+   - Workstation Preferences (`Ctrl+,`): Theme switcher, density controls, panel visibility flags, and security fence monitors.
+   - Global keyboard shortcuts handler intercepting function keys (`F1`–`F11`), `Ctrl+K`, `Ctrl+Shift+P`, `Ctrl+,`, `Ctrl+Z`, `Ctrl+Y` with safe cell editing isolation.
+
+2. **Interactive Drag-and-Drop Column Reordering & Column Resizing**:
    - Implemented interactive drag-and-drop column reordering across root, inlined lookup, subquery, and rollup columns with live visual grab cursor, floating drag tooltip (`⇄ Reordering Column: [NAME]`), and 3px electric cyan drop target guideline.
    - Built 6px vertical divider resize handles on all column headers with real-time drag expansion/contraction (`Sense::click_and_drag`, `ResizeColumn` cursor), live visual width indicators, and double-click reset to default density width.
    - Standardized continuous spreadsheet matrix data cell widths to `col_width + 6.0` across all data rows and child relation levels, delivering pixel-perfect vertical grid alignment without horizontal drift.
@@ -104,7 +124,7 @@
 ## 4. Verification Commands
 
 ```powershell
-# Run all 33 automated tests
+# Run all 34 automated tests
 cargo test --manifest-path "d:\Dev\repos\databasecraft\Cargo.toml"
 
 # Run clippy across all targets
