@@ -1,0 +1,149 @@
+{
+  "manifest_version": "0.2",
+  "name": "databasecraft",
+  "display_name": "DatabaseCraft",
+  "version": "__VERSION__",
+  "description": "L3 Native Desktop UI application for DatabaseCraft (ArtCraft egui/eframe pattern)",
+  "author": {
+    "name": "Sandra Schipal",
+    "url": "https://github.com/sandraschi"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sandraschi/databasecraft"
+  },
+  "license": "MIT OR Apache-2.0",
+  "server": {
+    "type": "binary",
+    "entry_point": "databasecraft-cli.exe",
+    "mcp_config": {
+      "command": "${__dirname}/databasecraft-cli.exe",
+      "args": [
+        "mcp"
+      ]
+    }
+  },
+  "compatibility": {
+    "platforms": [
+      "win32"
+    ]
+  },
+  "tools": [
+    {
+      "name": "db_status",
+      "description": "Get DatabaseCraft status, table count, and registered control port 14113"
+    },
+    {
+      "name": "db_query",
+      "description": "Execute a SQL query against the DatabaseCraft store and retrieve structured records"
+    },
+    {
+      "name": "db_schema_inspect",
+      "description": "Inspect database schema, foreign keys, and column definitions across all tables or a specific table"
+    },
+    {
+      "name": "db_record_insert",
+      "description": "Insert a structured JSON record into a table"
+    },
+    {
+      "name": "db_export_merge",
+      "description": "Query database and format rows for another Craft family member (designcraft, deckcraft, wordcraft, gridcraft, pdfcraft)"
+    },
+    {
+      "name": "db_seed_demo",
+      "description": "Seed deterministic demo dataset (ecommerce, film, kpi) for testing multi-app flows"
+    },
+    {
+      "name": "db_vector_search",
+      "description": "Execute a dense vector similarity search (cosine, dot_product, l2) over an embedded vector table"
+    },
+    {
+      "name": "db_hybrid_search",
+      "description": "Execute a hybrid RAG search combining dense vectors and sparse BM25 text keywords with Reciprocal Rank Fusion"
+    },
+    {
+      "name": "db_rag_embed",
+      "description": "Generate deterministic in-process semantic float vector embedding from text string"
+    },
+    {
+      "name": "db_semantic_search",
+      "description": "Execute end-to-end semantic search using natural language text query (in-process embedding + hybrid RRF or vector search)"
+    },
+    {
+      "name": "db_nlq",
+      "description": "Translate natural language prompt into schema-aware SQLite query with explanation and safety fences"
+    },
+    {
+      "name": "db_semantic_dedupe",
+      "description": "Analyze text column to find near-duplicate records using vector similarity clustering"
+    },
+    {
+      "name": "db_schema_advisor",
+      "description": "Inspect database schema for missing foreign key indexes, missing primary keys, and FTS5 candidates"
+    },
+    {
+      "name": "db_generate_synthetic",
+      "description": "Generate realistic domain-specific synthetic rows matching column types and foreign key references"
+    },
+    {
+      "name": "db_ingest_document",
+      "description": "Chunk unstructured markdown/text into sections and ingest into relational, vector, and FTS5 tables"
+    },
+    {
+      "name": "db_data_profile",
+      "description": "Profile table columns for distinct cardinality, null ratios, min/max values, and data types"
+    },
+    {
+      "name": "db_vacuum",
+      "description": "Defragment and reclaim unused disk space in database"
+    },
+    {
+      "name": "db_backup",
+      "description": "Create atomic online backup file of current database"
+    },
+    {
+      "name": "db_diagnose",
+      "description": "Inspect B-tree pages and foreign key relationships to detect database damage or inconsistencies"
+    },
+    {
+      "name": "db_repair",
+      "description": "Repair database: reindex B-trees, purge orphaned foreign keys, or salvage records to clean clone"
+    },
+    {
+      "name": "db_construct",
+      "description": "Construct a turnkey domain database schema: small_business, club, surgery, or creative_agency"
+    },
+    {
+      "name": "db_list_blueprints",
+      "description": "List all turnkey domain database blueprints available for instant construction"
+    },
+    {
+      "name": "canvas_query",
+      "description": "Execute a hierarchical Relational Canvas perspective query with nested subqueries and rollups (Ultorg-style Non-1NF)"
+    },
+    {
+      "name": "canvas_compile",
+      "description": "Compile a Relational Canvas perspective specification into ANSI/SQLite JSON SQL without executing"
+    },
+    {
+      "name": "db_schema_relations",
+      "description": "Inspect forward (N:1) and reverse (1:N) foreign-key relationships for a table to discover suggested joins and compact joins"
+    },
+    {
+      "name": "db_notifications_list",
+      "description": "List operational health notifications, disk space warnings, and quiescence anomalies"
+    },
+    {
+      "name": "db_notification_ack",
+      "description": "Acknowledge an operational alert or notification by ID"
+    },
+    {
+      "name": "db_watchdog_check",
+      "description": "Run CTO watchdog anomaly evaluation across database (evaluates quiescence violations, integrity, disk)"
+    },
+    {
+      "name": "db_update_cell",
+      "description": "Atomically update a single table cell identified by its primary key with validation, mutation tracking, and notification bus event"
+    }
+  ]
+}
