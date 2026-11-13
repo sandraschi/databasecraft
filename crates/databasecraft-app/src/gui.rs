@@ -152,12 +152,7 @@ fn render_status_pill(
         });
 }
 
-fn render_formatted_cell(
-    ui: &mut egui::Ui,
-    col_name: &str,
-    val: &Value,
-    density: CanvasDensity,
-) {
+fn render_formatted_cell(ui: &mut egui::Ui, col_name: &str, val: &Value, density: CanvasDensity) {
     let font_size = density.font_size();
     if val.is_null() {
         ui.colored_label(Color32::from_rgb(107, 114, 128), "—");
@@ -724,14 +719,20 @@ impl DatabaseCraftGui {
         if rel_res["success"] == true {
             if let Some(arr) = rel_res["forward_relations"].as_array() {
                 for r in arr {
-                    if let Ok(sr) = serde_json::from_value::<databasecraft_core::canvas::SchemaRelation>(r.clone()) {
+                    if let Ok(sr) = serde_json::from_value::<
+                        databasecraft_core::canvas::SchemaRelation,
+                    >(r.clone())
+                    {
                         forward_relations.push(sr);
                     }
                 }
             }
             if let Some(arr) = rel_res["reverse_relations"].as_array() {
                 for r in arr {
-                    if let Ok(sr) = serde_json::from_value::<databasecraft_core::canvas::SchemaRelation>(r.clone()) {
+                    if let Ok(sr) = serde_json::from_value::<
+                        databasecraft_core::canvas::SchemaRelation,
+                    >(r.clone())
+                    {
                         reverse_relations.push(sr);
                     }
                 }
@@ -763,9 +764,7 @@ impl DatabaseCraftGui {
         if let Some(ref spec) = self.canvas_spec.clone() {
             let start = Instant::now();
             let res = self.runtime.block_on(dispatch(
-                Command::CanvasQuery {
-                    spec: spec.clone(),
-                },
+                Command::CanvasQuery { spec: spec.clone() },
                 &self.store,
             ));
             self.canvas_latency_ms = Some(start.elapsed().as_millis());
@@ -825,7 +824,9 @@ impl DatabaseCraftGui {
                 };
 
                 spec.nested_relations.retain(|existing| {
-                    !existing.relation_name.eq_ignore_ascii_case(&r.relation_name)
+                    !existing
+                        .relation_name
+                        .eq_ignore_ascii_case(&r.relation_name)
                 });
                 spec.nested_relations.push(nested);
             }
@@ -1049,15 +1050,20 @@ impl DatabaseCraftGui {
         if let Some(ref spec) = self.canvas_spec {
             if let Some(c) = spec.columns.iter().find(|c| {
                 c.name.eq_ignore_ascii_case(col_key)
-                    || c.alias.as_deref().unwrap_or("").eq_ignore_ascii_case(col_key)
+                    || c.alias
+                        .as_deref()
+                        .unwrap_or("")
+                        .eq_ignore_ascii_case(col_key)
             }) {
                 if let Some(w) = c.width_px {
                     return w as f32;
                 }
             }
-            if let Some(l) = spec.inlined_lookups.iter().find(|l| {
-                l.alias.eq_ignore_ascii_case(col_key)
-            }) {
+            if let Some(l) = spec
+                .inlined_lookups
+                .iter()
+                .find(|l| l.alias.eq_ignore_ascii_case(col_key))
+            {
                 if let Some(w) = l.width_px {
                     return w as f32;
                 }
@@ -1072,7 +1078,8 @@ impl DatabaseCraftGui {
 
     pub fn set_column_width(&mut self, col_key: &str, width: f32) {
         let clamped = width.clamp(55.0, 800.0);
-        self.canvas_column_widths.insert(col_key.to_string(), clamped);
+        self.canvas_column_widths
+            .insert(col_key.to_string(), clamped);
         if let Some(ref mut spec) = self.canvas_spec {
             spec.set_column_width(col_key, clamped.round() as u32);
         }
@@ -1186,9 +1193,7 @@ impl DatabaseCraftGui {
 
     pub fn ack_notification(&mut self, id: &str) {
         let _ = self.runtime.block_on(dispatch(
-            Command::NotificationAck {
-                id: id.to_string(),
-            },
+            Command::NotificationAck { id: id.to_string() },
             &self.store,
         ));
         self.refresh_notifications();
@@ -1520,53 +1525,65 @@ impl DatabaseCraftGui {
                     .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, -80.0))
                     .show(ctx, |ui| {
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new("Search:").strong().color(emerald_bright));
+                            ui.label(
+                                egui::RichText::new("Search:")
+                                    .strong()
+                                    .color(emerald_bright),
+                            );
                             ui.text_edit_singleline(&mut self.command_palette_query);
                         });
                         ui.separator();
 
                         let q = self.command_palette_query.to_lowercase();
 
-                        egui::ScrollArea::vertical().max_height(340.0).show(ui, |ui| {
-                            let mut matches = 0;
-                            for item in &items {
-                                if q.is_empty()
-                                    || item.label.to_lowercase().contains(&q)
-                                    || item.desc.to_lowercase().contains(&q)
-                                    || item.cat.to_lowercase().contains(&q)
-                                {
-                                    matches += 1;
-                                    ui.group(|ui| {
-                                        ui.horizontal(|ui| {
-                                            if ui
-                                                .button(
-                                                    egui::RichText::new(item.label)
-                                                        .strong()
-                                                        .color(emerald_bright),
-                                                )
-                                                .clicked()
-                                            {
-                                                clicked_action = Some(item.action);
-                                            }
-                                            ui.with_layout(
-                                                egui::Layout::right_to_left(egui::Align::Center),
-                                                |ui| {
-                                                    ui.label(
-                                                        egui::RichText::new(item.cat)
-                                                            .small()
-                                                            .color(muted_gray),
-                                                    );
-                                                },
+                        egui::ScrollArea::vertical()
+                            .max_height(340.0)
+                            .show(ui, |ui| {
+                                let mut matches = 0;
+                                for item in &items {
+                                    if q.is_empty()
+                                        || item.label.to_lowercase().contains(&q)
+                                        || item.desc.to_lowercase().contains(&q)
+                                        || item.cat.to_lowercase().contains(&q)
+                                    {
+                                        matches += 1;
+                                        ui.group(|ui| {
+                                            ui.horizontal(|ui| {
+                                                if ui
+                                                    .button(
+                                                        egui::RichText::new(item.label)
+                                                            .strong()
+                                                            .color(emerald_bright),
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    clicked_action = Some(item.action);
+                                                }
+                                                ui.with_layout(
+                                                    egui::Layout::right_to_left(
+                                                        egui::Align::Center,
+                                                    ),
+                                                    |ui| {
+                                                        ui.label(
+                                                            egui::RichText::new(item.cat)
+                                                                .small()
+                                                                .color(muted_gray),
+                                                        );
+                                                    },
+                                                );
+                                            });
+                                            ui.label(
+                                                egui::RichText::new(item.desc)
+                                                    .small()
+                                                    .color(light_text),
                                             );
                                         });
-                                        ui.label(egui::RichText::new(item.desc).small().color(light_text));
-                                    });
+                                    }
                                 }
-                            }
-                            if matches == 0 {
-                                ui.colored_label(muted_gray, "No matching commands found.");
-                            }
-                        });
+                                if matches == 0 {
+                                    ui.colored_label(muted_gray, "No matching commands found.");
+                                }
+                            });
                     });
 
                 if let Some(act) = clicked_action {
@@ -1695,7 +1712,9 @@ impl DatabaseCraftGui {
                             self.status_message = "Reset column widths to default".to_string();
                         }
                         PaletteActionKind::VacuumDb => {
-                            let _ = self.runtime.block_on(dispatch(Command::Vacuum, &self.store));
+                            let _ = self
+                                .runtime
+                                .block_on(dispatch(Command::Vacuum, &self.store));
                             self.status_message = "Database vacuumed and defragmented".to_string();
                         }
                         PaletteActionKind::RunDiagnostics => {
@@ -1733,59 +1752,137 @@ impl DatabaseCraftGui {
                     .default_width(580.0)
                     .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
                     .show(ctx, |ui| {
-                        egui::ScrollArea::vertical().max_height(460.0).show(ui, |ui| {
-                            egui::Grid::new("shortcuts_grid")
-                                .striped(true)
-                                .min_col_width(140.0)
-                                .show(ui, |ui| {
-                                    ui.label(
-                                        egui::RichText::new("Shortcut")
-                                            .strong()
-                                            .color(emerald_bright),
-                                    );
-                                    ui.label(egui::RichText::new("Action").strong().color(gold));
-                                    ui.label(
-                                        egui::RichText::new("Category")
-                                            .strong()
-                                            .color(muted_gray),
-                                    );
-                                    ui.end_row();
-
-                                    let shortcuts = [
-                                        ("Ctrl/Cmd + K", "Open Command Palette / Fields Palette", "Global / Canvas"),
-                                        ("Ctrl/Cmd + Shift + P", "Open Command Palette", "Global"),
-                                        ("F1 / Ctrl + /", "Open Keyboard Shortcuts Cheat Sheet", "Global"),
-                                        ("Ctrl/Cmd + ,", "Workstation Preferences & Fences", "Global"),
-                                        ("Ctrl/Cmd + Q", "Quit Application Cleanly", "Global"),
-                                        ("F2", "Switch to Relational Canvas (Non-1NF)", "Workspace"),
-                                        ("F3", "Switch to Table Data Grid", "Workspace"),
-                                        ("F4", "Switch to SQL & NLQ Console", "Workspace"),
-                                        ("F5", "Switch to Schema ERD Topology", "Workspace"),
-                                        ("F6", "Switch to RAG & Vector Embeddings", "Workspace"),
-                                        ("F7", "Switch to Query Profiler & EXPLAIN", "Workspace"),
-                                        ("F8", "Switch to Database Doctor & Diagnostics", "Workspace"),
-                                        ("F9", "Switch to Blueprint Constructor", "Workspace"),
-                                        ("F10", "Switch to Cross-Craft Exporter", "Workspace"),
-                                        ("F11", "Switch to CTO Alerts & Watchdog", "Workspace"),
-                                        ("Double-Click Cell", "Edit Cell In-Place (Atomic Write-Back)", "Canvas / Grid"),
-                                        ("Enter / [✓ Commit]", "Commit Cell Edit to SQLite Primary Key", "Canvas / Grid"),
-                                        ("Esc / [✖ Cancel]", "Cancel In-Place Cell Edit", "Canvas / Grid"),
-                                        ("Ctrl/Cmd + Z", "Undo Last Cell Edit Mutation", "Canvas"),
-                                        ("Ctrl/Cmd + Y", "Redo Reverted Cell Edit Mutation", "Canvas"),
-                                        ("Click Column Header", "Tri-State Sort (ASC -> DESC -> None)", "Canvas"),
-                                        ("Drag Column Header", "Interactive Column Reordering", "Canvas"),
-                                        ("Drag Column Divider", "Interactive Column Resizing", "Canvas"),
-                                        ("Double-Click Divider", "Reset Column to Default Density Width", "Canvas"),
-                                    ];
-
-                                    for (sc, action, cat) in &shortcuts {
-                                        ui.label(egui::RichText::new(*sc).strong().color(sky_blue));
-                                        ui.label(egui::RichText::new(*action).color(light_text));
-                                        ui.label(egui::RichText::new(*cat).weak().color(muted_gray));
+                        egui::ScrollArea::vertical()
+                            .max_height(460.0)
+                            .show(ui, |ui| {
+                                egui::Grid::new("shortcuts_grid")
+                                    .striped(true)
+                                    .min_col_width(140.0)
+                                    .show(ui, |ui| {
+                                        ui.label(
+                                            egui::RichText::new("Shortcut")
+                                                .strong()
+                                                .color(emerald_bright),
+                                        );
+                                        ui.label(
+                                            egui::RichText::new("Action").strong().color(gold),
+                                        );
+                                        ui.label(
+                                            egui::RichText::new("Category")
+                                                .strong()
+                                                .color(muted_gray),
+                                        );
                                         ui.end_row();
-                                    }
-                                });
-                        });
+
+                                        let shortcuts = [
+                                            (
+                                                "Ctrl/Cmd + K",
+                                                "Open Command Palette / Fields Palette",
+                                                "Global / Canvas",
+                                            ),
+                                            (
+                                                "Ctrl/Cmd + Shift + P",
+                                                "Open Command Palette",
+                                                "Global",
+                                            ),
+                                            (
+                                                "F1 / Ctrl + /",
+                                                "Open Keyboard Shortcuts Cheat Sheet",
+                                                "Global",
+                                            ),
+                                            (
+                                                "Ctrl/Cmd + ,",
+                                                "Workstation Preferences & Fences",
+                                                "Global",
+                                            ),
+                                            ("Ctrl/Cmd + Q", "Quit Application Cleanly", "Global"),
+                                            (
+                                                "F2",
+                                                "Switch to Relational Canvas (Non-1NF)",
+                                                "Workspace",
+                                            ),
+                                            ("F3", "Switch to Table Data Grid", "Workspace"),
+                                            ("F4", "Switch to SQL & NLQ Console", "Workspace"),
+                                            ("F5", "Switch to Schema ERD Topology", "Workspace"),
+                                            (
+                                                "F6",
+                                                "Switch to RAG & Vector Embeddings",
+                                                "Workspace",
+                                            ),
+                                            (
+                                                "F7",
+                                                "Switch to Query Profiler & EXPLAIN",
+                                                "Workspace",
+                                            ),
+                                            (
+                                                "F8",
+                                                "Switch to Database Doctor & Diagnostics",
+                                                "Workspace",
+                                            ),
+                                            ("F9", "Switch to Blueprint Constructor", "Workspace"),
+                                            ("F10", "Switch to Cross-Craft Exporter", "Workspace"),
+                                            ("F11", "Switch to CTO Alerts & Watchdog", "Workspace"),
+                                            (
+                                                "Double-Click Cell",
+                                                "Edit Cell In-Place (Atomic Write-Back)",
+                                                "Canvas / Grid",
+                                            ),
+                                            (
+                                                "Enter / [✓ Commit]",
+                                                "Commit Cell Edit to SQLite Primary Key",
+                                                "Canvas / Grid",
+                                            ),
+                                            (
+                                                "Esc / [✖ Cancel]",
+                                                "Cancel In-Place Cell Edit",
+                                                "Canvas / Grid",
+                                            ),
+                                            (
+                                                "Ctrl/Cmd + Z",
+                                                "Undo Last Cell Edit Mutation",
+                                                "Canvas",
+                                            ),
+                                            (
+                                                "Ctrl/Cmd + Y",
+                                                "Redo Reverted Cell Edit Mutation",
+                                                "Canvas",
+                                            ),
+                                            (
+                                                "Click Column Header",
+                                                "Tri-State Sort (ASC -> DESC -> None)",
+                                                "Canvas",
+                                            ),
+                                            (
+                                                "Drag Column Header",
+                                                "Interactive Column Reordering",
+                                                "Canvas",
+                                            ),
+                                            (
+                                                "Drag Column Divider",
+                                                "Interactive Column Resizing",
+                                                "Canvas",
+                                            ),
+                                            (
+                                                "Double-Click Divider",
+                                                "Reset Column to Default Density Width",
+                                                "Canvas",
+                                            ),
+                                        ];
+
+                                        for (sc, action, cat) in &shortcuts {
+                                            ui.label(
+                                                egui::RichText::new(*sc).strong().color(sky_blue),
+                                            );
+                                            ui.label(
+                                                egui::RichText::new(*action).color(light_text),
+                                            );
+                                            ui.label(
+                                                egui::RichText::new(*cat).weak().color(muted_gray),
+                                            );
+                                            ui.end_row();
+                                        }
+                                    });
+                            });
                     });
 
                 if !open {
@@ -2648,138 +2745,140 @@ impl eframe::App for DatabaseCraftGui {
         // 4. Left Navigation Rail
         if self.show_nav_rail {
             egui::Panel::left("nav_rail")
-            .min_size(210.0)
-            .show(ui, |ui| {
-                ui.add_space(6.0);
-                ui.strong("WORKSPACES");
-                ui.add_space(4.0);
+                .min_size(210.0)
+                .show(ui, |ui| {
+                    ui.add_space(6.0);
+                    ui.strong("WORKSPACES");
+                    ui.add_space(4.0);
 
-                let nav_button = |ui: &mut egui::Ui, active: bool, label: &str| -> bool {
-                    let text = egui::RichText::new(label).color(if active {
-                        emerald_bright
-                    } else {
-                        ui.visuals().text_color()
-                    });
-                    ui.selectable_label(active, text).clicked()
-                };
-
-                if nav_button(ui, self.active_tab == ActiveTab::Tables, "📊 Table Data") {
-                    self.active_tab = ActiveTab::Tables;
-                }
-                if nav_button(
-                    ui,
-                    self.active_tab == ActiveTab::Canvas,
-                    "✨ Relational Canvas",
-                ) {
-                    self.active_tab = ActiveTab::Canvas;
-                    if self.canvas_spec.is_none() {
-                        if let Some(ref t) = self.selected_table.clone() {
-                            self.init_canvas_for_table(t);
-                        }
-                    }
-                }
-                if nav_button(
-                    ui,
-                    self.active_tab == ActiveTab::Query,
-                    "⚡ SQL & NLQ Console",
-                ) {
-                    self.active_tab = ActiveTab::Query;
-                }
-                if nav_button(ui, self.active_tab == ActiveTab::Schema, "🗺️ Schema & ERD") {
-                    self.active_tab = ActiveTab::Schema;
-                }
-                if nav_button(
-                    ui,
-                    self.active_tab == ActiveTab::AiWorkflows,
-                    "🤖 AI Copilot & Workflows",
-                ) {
-                    self.active_tab = ActiveTab::AiWorkflows;
-                }
-                if nav_button(ui, self.active_tab == ActiveTab::Rag, "🎯 RAG & Vectors") {
-                    self.active_tab = ActiveTab::Rag;
-                }
-                if nav_button(
-                    ui,
-                    self.active_tab == ActiveTab::Profiler,
-                    "📈 Data Profiler",
-                ) {
-                    self.active_tab = ActiveTab::Profiler;
-                    self.run_profiler();
-                }
-                if nav_button(
-                    ui,
-                    self.active_tab == ActiveTab::Doctor,
-                    "🩺 Doctor & Repair",
-                ) {
-                    self.active_tab = ActiveTab::Doctor;
-                    self.run_diagnostics();
-                }
-                if nav_button(
-                    ui,
-                    self.active_tab == ActiveTab::Constructor,
-                    "🏗️ Domain Constructor",
-                ) {
-                    self.active_tab = ActiveTab::Constructor;
-                    self.load_blueprints();
-                }
-                if nav_button(
-                    ui,
-                    self.active_tab == ActiveTab::Export,
-                    "📦 Cross-Craft Merge",
-                ) {
-                    self.active_tab = ActiveTab::Export;
-                }
-                let nav_alert_label = if self.unread_alerts_count > 0 {
-                    format!("🚨 Alerts & Watchdog ({})", self.unread_alerts_count)
-                } else {
-                    "🔔 Alerts & Watchdog".to_string()
-                };
-                if nav_button(ui, self.active_tab == ActiveTab::Alerts, &nav_alert_label) {
-                    self.active_tab = ActiveTab::Alerts;
-                    self.refresh_notifications();
-                }
-
-                ui.separator();
-                ui.horizontal(|ui| {
-                    ui.strong(format!("TABLES ({})", self.tables.len()));
-                    if ui.small_button("⟳").clicked() {
-                        self.refresh_tables();
-                    }
-                });
-                ui.add_space(2.0);
-
-                ui.text_edit_singleline(&mut self.table_search);
-                let search_lower = self.table_search.trim().to_lowercase();
-
-                let mut table_to_select = None;
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    for t in &self.tables {
-                        if !search_lower.is_empty() && !t.to_lowercase().contains(&search_lower) {
-                            continue;
-                        }
-                        let is_selected = self.selected_table.as_deref() == Some(t);
-                        let icon = if t.ends_with("_vec") {
-                            "🎯"
-                        } else if t.ends_with("_fts") {
-                            "🔍"
+                    let nav_button = |ui: &mut egui::Ui, active: bool, label: &str| -> bool {
+                        let text = egui::RichText::new(label).color(if active {
+                            emerald_bright
                         } else {
-                            "📋"
-                        };
-                        let label = format!("{icon} {t}");
-                        if ui.selectable_label(is_selected, label).clicked() {
-                            table_to_select = Some(t.clone());
+                            ui.visuals().text_color()
+                        });
+                        ui.selectable_label(active, text).clicked()
+                    };
+
+                    if nav_button(ui, self.active_tab == ActiveTab::Tables, "📊 Table Data") {
+                        self.active_tab = ActiveTab::Tables;
+                    }
+                    if nav_button(
+                        ui,
+                        self.active_tab == ActiveTab::Canvas,
+                        "✨ Relational Canvas",
+                    ) {
+                        self.active_tab = ActiveTab::Canvas;
+                        if self.canvas_spec.is_none() {
+                            if let Some(ref t) = self.selected_table.clone() {
+                                self.init_canvas_for_table(t);
+                            }
+                        }
+                    }
+                    if nav_button(
+                        ui,
+                        self.active_tab == ActiveTab::Query,
+                        "⚡ SQL & NLQ Console",
+                    ) {
+                        self.active_tab = ActiveTab::Query;
+                    }
+                    if nav_button(ui, self.active_tab == ActiveTab::Schema, "🗺️ Schema & ERD")
+                    {
+                        self.active_tab = ActiveTab::Schema;
+                    }
+                    if nav_button(
+                        ui,
+                        self.active_tab == ActiveTab::AiWorkflows,
+                        "🤖 AI Copilot & Workflows",
+                    ) {
+                        self.active_tab = ActiveTab::AiWorkflows;
+                    }
+                    if nav_button(ui, self.active_tab == ActiveTab::Rag, "🎯 RAG & Vectors") {
+                        self.active_tab = ActiveTab::Rag;
+                    }
+                    if nav_button(
+                        ui,
+                        self.active_tab == ActiveTab::Profiler,
+                        "📈 Data Profiler",
+                    ) {
+                        self.active_tab = ActiveTab::Profiler;
+                        self.run_profiler();
+                    }
+                    if nav_button(
+                        ui,
+                        self.active_tab == ActiveTab::Doctor,
+                        "🩺 Doctor & Repair",
+                    ) {
+                        self.active_tab = ActiveTab::Doctor;
+                        self.run_diagnostics();
+                    }
+                    if nav_button(
+                        ui,
+                        self.active_tab == ActiveTab::Constructor,
+                        "🏗️ Domain Constructor",
+                    ) {
+                        self.active_tab = ActiveTab::Constructor;
+                        self.load_blueprints();
+                    }
+                    if nav_button(
+                        ui,
+                        self.active_tab == ActiveTab::Export,
+                        "📦 Cross-Craft Merge",
+                    ) {
+                        self.active_tab = ActiveTab::Export;
+                    }
+                    let nav_alert_label = if self.unread_alerts_count > 0 {
+                        format!("🚨 Alerts & Watchdog ({})", self.unread_alerts_count)
+                    } else {
+                        "🔔 Alerts & Watchdog".to_string()
+                    };
+                    if nav_button(ui, self.active_tab == ActiveTab::Alerts, &nav_alert_label) {
+                        self.active_tab = ActiveTab::Alerts;
+                        self.refresh_notifications();
+                    }
+
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        ui.strong(format!("TABLES ({})", self.tables.len()));
+                        if ui.small_button("⟳").clicked() {
+                            self.refresh_tables();
+                        }
+                    });
+                    ui.add_space(2.0);
+
+                    ui.text_edit_singleline(&mut self.table_search);
+                    let search_lower = self.table_search.trim().to_lowercase();
+
+                    let mut table_to_select = None;
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        for t in &self.tables {
+                            if !search_lower.is_empty() && !t.to_lowercase().contains(&search_lower)
+                            {
+                                continue;
+                            }
+                            let is_selected = self.selected_table.as_deref() == Some(t);
+                            let icon = if t.ends_with("_vec") {
+                                "🎯"
+                            } else if t.ends_with("_fts") {
+                                "🔍"
+                            } else {
+                                "📋"
+                            };
+                            let label = format!("{icon} {t}");
+                            if ui.selectable_label(is_selected, label).clicked() {
+                                table_to_select = Some(t.clone());
+                            }
+                        }
+                    });
+
+                    if let Some(selected) = table_to_select {
+                        self.selected_table = Some(selected.clone());
+                        self.load_table_data(&selected);
+                        if self.active_tab == ActiveTab::Canvas {
+                            self.init_canvas_for_table(&selected);
                         }
                     }
                 });
-
-                if let Some(selected) = table_to_select {
-                    self.selected_table = Some(selected.clone());
-                    self.load_table_data(&selected);
-                    if self.active_tab == ActiveTab::Canvas {
-                        self.init_canvas_for_table(&selected);
-                    }
-                }
-            });
         }
 
         // 4. Central Workspace Area

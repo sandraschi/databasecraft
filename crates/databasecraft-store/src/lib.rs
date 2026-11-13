@@ -233,13 +233,22 @@ impl DatabaseStore {
         new_val: &serde_json::Value,
     ) -> Result<usize, StoreError> {
         if !table.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-            return Err(StoreError::InvalidInput(format!("invalid table name '{table}'")));
+            return Err(StoreError::InvalidInput(format!(
+                "invalid table name '{table}'"
+            )));
         }
-        if !pk_col.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-            return Err(StoreError::InvalidInput(format!("invalid primary key column '{pk_col}'")));
+        if !pk_col
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
+            return Err(StoreError::InvalidInput(format!(
+                "invalid primary key column '{pk_col}'"
+            )));
         }
         if !col.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-            return Err(StoreError::InvalidInput(format!("invalid target column '{col}'")));
+            return Err(StoreError::InvalidInput(format!(
+                "invalid target column '{col}'"
+            )));
         }
 
         let conn = self
