@@ -99,9 +99,9 @@ pub struct DiskThreshold {
 impl Default for DiskThreshold {
     fn default() -> Self {
         Self {
-            warn_db_bytes: 100 * 1024 * 1024,      // 100 MB
-            critical_db_bytes: 500 * 1024 * 1024,  // 500 MB
-            warn_wal_bytes: 32 * 1024 * 1024,      // 32 MB
+            warn_db_bytes: 100 * 1024 * 1024,     // 100 MB
+            critical_db_bytes: 500 * 1024 * 1024, // 500 MB
+            warn_wal_bytes: 32 * 1024 * 1024,     // 32 MB
         }
     }
 }
@@ -171,7 +171,10 @@ impl MutationTracker {
             }
         }
         // Count entries in [now - 60, now]
-        entry.iter().filter(|&&ts| now.saturating_sub(ts) <= 60).count()
+        entry
+            .iter()
+            .filter(|&&ts| now.saturating_sub(ts) <= 60)
+            .count()
     }
 }
 
@@ -291,10 +294,7 @@ impl NotificationBus {
 
     /// Retrieve current watchdog configuration.
     pub fn get_config(&self) -> WatchdogConfig {
-        self.config
-            .lock()
-            .map(|c| c.clone())
-            .unwrap_or_default()
+        self.config.lock().map(|c| c.clone()).unwrap_or_default()
     }
 
     /// Register a quiescent table rule.
