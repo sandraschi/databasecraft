@@ -869,13 +869,19 @@ fn main() {
                 println!("Forward Relations (N:1):");
                 if let Some(fw) = res["forward_relations"].as_array() {
                     for r in fw {
-                        println!("  - {} -> {}.{} (via {})", r["label"], r["table"], r["target_col"], r["source_col"]);
+                        println!(
+                            "  - {} -> {}.{} (via {})",
+                            r["label"], r["table"], r["target_col"], r["source_col"]
+                        );
                     }
                 }
                 println!("Reverse Relations (1:N):");
                 if let Some(rev) = res["reverse_relations"].as_array() {
                     for r in rev {
-                        println!("  - {} <- {}.{} (via {})", r["label"], r["table"], r["target_col"], r["source_col"]);
+                        println!(
+                            "  - {} <- {}.{} (via {})",
+                            r["label"], r["table"], r["target_col"], r["source_col"]
+                        );
                     }
                 }
             } else {
@@ -886,11 +892,15 @@ fn main() {
             let store = open_store(db.as_deref());
             match serde_json::from_str::<databasecraft_core::canvas::CanvasSpec>(&spec) {
                 Ok(parsed_spec) => {
-                    let res = rt.block_on(dispatch(Command::CanvasQuery { spec: parsed_spec }, &store));
+                    let res =
+                        rt.block_on(dispatch(Command::CanvasQuery { spec: parsed_spec }, &store));
                     if json {
                         println!("{res}");
                     } else if res["success"] == true {
-                        println!("{}", serde_json::to_string_pretty(&res["result"]).unwrap_or_default());
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&res["result"]).unwrap_or_default()
+                        );
                     } else {
                         eprintln!("Canvas Query Error: {}", res["error"]);
                     }
@@ -909,7 +919,8 @@ fn main() {
         } => {
             let store = open_store(db.as_deref());
             let parsed_pk: Value = serde_json::from_str(&pk_val).unwrap_or(Value::String(pk_val));
-            let parsed_new: Value = serde_json::from_str(&new_val).unwrap_or(Value::String(new_val));
+            let parsed_new: Value =
+                serde_json::from_str(&new_val).unwrap_or(Value::String(new_val));
             let res = rt.block_on(dispatch(
                 Command::UpdateCell {
                     table,
@@ -932,14 +943,24 @@ fn main() {
             }
         }
         Commands::Notifications { unack, json } => {
-            let notifs = databasecraft_core::notifications::global_notification_bus().list(None, unack);
+            let notifs =
+                databasecraft_core::notifications::global_notification_bus().list(None, unack);
             if json {
-                println!("{}", serde_json::to_string_pretty(&notifs).unwrap_or_else(|_| "[]".to_string()));
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&notifs).unwrap_or_else(|_| "[]".to_string())
+                );
             } else {
                 println!("Active Notifications & Alerts ({} total):", notifs.len());
                 for n in notifs {
                     let status = if n.acknowledged { "[ACK]" } else { "[UNACK]" };
-                    println!("  {:8} {:7} {} - {}", format!("[{:?}]", n.severity), status, n.title, n.message);
+                    println!(
+                        "  {:8} {:7} {} - {}",
+                        format!("[{:?}]", n.severity),
+                        status,
+                        n.title,
+                        n.message
+                    );
                 }
             }
         }
@@ -1675,14 +1696,18 @@ pub fn call_tool(rt: &Runtime, store: &DatabaseStore, name: &str, args: &Value) 
             let spec_val = args.get("spec").cloned().unwrap_or(Value::Null);
             match serde_json::from_value::<databasecraft_core::canvas::CanvasSpec>(spec_val) {
                 Ok(spec) => rt.block_on(dispatch(Command::CanvasQuery { spec }, store)),
-                Err(e) => json!({ "success": false, "error": format!("Invalid CanvasSpec JSON: {e}") }),
+                Err(e) => {
+                    json!({ "success": false, "error": format!("Invalid CanvasSpec JSON: {e}") })
+                }
             }
         }
         "canvas_compile" => {
             let spec_val = args.get("spec").cloned().unwrap_or(Value::Null);
             match serde_json::from_value::<databasecraft_core::canvas::CanvasSpec>(spec_val) {
                 Ok(spec) => rt.block_on(dispatch(Command::CanvasCompileSql { spec }, store)),
-                Err(e) => json!({ "success": false, "error": format!("Invalid CanvasSpec JSON: {e}") }),
+                Err(e) => {
+                    json!({ "success": false, "error": format!("Invalid CanvasSpec JSON: {e}") })
+                }
             }
         }
         "db_schema_relations" => {
@@ -1693,21 +1718,34 @@ pub fn call_tool(rt: &Runtime, store: &DatabaseStore, name: &str, args: &Value) 
             let sev_str = args["severity"].as_str();
             let sev = match sev_str {
                 Some("info") => Some(databasecraft_core::notifications::NotificationSeverity::Info),
-                Some("warning") => Some(databasecraft_core::notifications::NotificationSeverity::Warning),
-                Some("critical") => Some(databasecraft_core::notifications::NotificationSeverity::Critical),
-                Some("disaster") => Some(databasecraft_core::notifications::NotificationSeverity::Disaster),
+                Some("warning") => {
+                    Some(databasecraft_core::notifications::NotificationSeverity::Warning)
+                }
+                Some("critical") => {
+                    Some(databasecraft_core::notifications::NotificationSeverity::Critical)
+                }
+                Some("disaster") => {
+                    Some(databasecraft_core::notifications::NotificationSeverity::Disaster)
+                }
                 _ => None,
             };
-            let unack = args.get("unacknowledged_only").and_then(|v| v.as_bool()).or(Some(true));
-            rt.block_on(dispatch(Command::NotificationsList { severity: sev, unacknowledged_only: unack }, store))
+            let unack = args
+                .get("unacknowledged_only")
+                .and_then(|v| v.as_bool())
+                .or(Some(true));
+            rt.block_on(dispatch(
+                Command::NotificationsList {
+                    severity: sev,
+                    unacknowledged_only: unack,
+                },
+                store,
+            ))
         }
         "db_notification_ack" => {
             let id = args["id"].as_str().unwrap_or("").to_string();
             rt.block_on(dispatch(Command::NotificationAck { id }, store))
         }
-        "db_watchdog_check" => {
-            rt.block_on(dispatch(Command::WatchdogCheck, store))
-        }
+        "db_watchdog_check" => rt.block_on(dispatch(Command::WatchdogCheck, store)),
         "db_update_cell" => {
             let table = args["table"].as_str().unwrap_or("").to_string();
             let pk_col = args["pk_col"].as_str().unwrap_or("").to_string();

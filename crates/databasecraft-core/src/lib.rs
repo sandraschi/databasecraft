@@ -845,8 +845,7 @@ fn execute_dispatch(cmd: Command, store: &DatabaseStore) -> Result<Value, Databa
         }
         Command::WatchdogCheck => {
             let alerts = notifications::global_notification_bus().evaluate_watchdog(store)?;
-            let unack_count =
-                notifications::global_notification_bus().unacknowledged_alert_count();
+            let unack_count = notifications::global_notification_bus().unacknowledged_alert_count();
             Ok(json!({
                 "success": true,
                 "new_alerts_emitted": alerts.len(),

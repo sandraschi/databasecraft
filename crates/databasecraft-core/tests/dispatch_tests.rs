@@ -747,10 +747,7 @@ async fn test_canvas_compile_and_query_hierarchy() -> Result<(), Box<dyn std::er
     // - nested relation: products with sku, title, price
     let spec = CanvasSpec {
         root_table: "categories".to_string(),
-        columns: vec![
-            CanvasColumn::new("id"),
-            CanvasColumn::new("name"),
-        ],
+        columns: vec![CanvasColumn::new("id"), CanvasColumn::new("name")],
         inlined_lookups: vec![],
         nested_relations: vec![CanvasNestedRelation {
             relation_name: "products".to_string(),
@@ -790,11 +787,7 @@ async fn test_canvas_compile_and_query_hierarchy() -> Result<(), Box<dyn std::er
     };
 
     // 1. Test SQL Compilation
-    let comp_res = dispatch(
-        Command::CanvasCompileSql { spec: spec.clone() },
-        &store,
-    )
-    .await;
+    let comp_res = dispatch(Command::CanvasCompileSql { spec: spec.clone() }, &store).await;
     assert_eq!(comp_res["success"], true);
     let compiled_sql = comp_res["sql"].as_str().ok_or("missing sql")?;
     assert!(compiled_sql.contains("json_group_array"));
@@ -802,13 +795,11 @@ async fn test_canvas_compile_and_query_hierarchy() -> Result<(), Box<dyn std::er
     assert!(compiled_sql.contains("total_category_value"));
 
     // 2. Test Execution and Non-1NF JSON Nesting
-    let query_res = dispatch(
-        Command::CanvasQuery { spec },
-        &store,
-    )
-    .await;
+    let query_res = dispatch(Command::CanvasQuery { spec }, &store).await;
     assert_eq!(query_res["success"], true);
-    let data = query_res["result"]["data"].as_array().ok_or("missing data")?;
+    let data = query_res["result"]["data"]
+        .as_array()
+        .ok_or("missing data")?;
     assert_eq!(data.len(), 3); // 3 categories
 
     // Category 1: Audio Hardware has 2 products (AUD-900: $349, MIC-042: $799 -> total $1148)
@@ -817,7 +808,9 @@ async fn test_canvas_compile_and_query_hierarchy() -> Result<(), Box<dyn std::er
     assert_eq!(cat1["product_count"], 2);
     assert_eq!(cat1["total_category_value"], 1148.0);
 
-    let cat1_products = cat1["products"].as_array().ok_or("missing nested products")?;
+    let cat1_products = cat1["products"]
+        .as_array()
+        .ok_or("missing nested products")?;
     assert_eq!(cat1_products.len(), 2);
     assert_eq!(cat1_products[0]["sku"], "AUD-900");
     assert_eq!(cat1_products[1]["sku"], "MIC-042");
@@ -875,7 +868,9 @@ async fn test_seed_northwind_and_relations() -> Result<(), Box<dyn std::error::E
     let order_rev = order_rel["reverse_relations"]
         .as_array()
         .ok_or("missing order reverse_relations")?;
-    assert!(order_rev.iter().any(|r| r["relation_name"] == "order_items"));
+    assert!(order_rev
+        .iter()
+        .any(|r| r["relation_name"] == "order_items"));
 
     Ok(())
 }
@@ -900,7 +895,10 @@ async fn test_canvas_hostile_input_fence() -> Result<(), Box<dyn std::error::Err
 
     let res = dispatch(Command::CanvasQuery { spec: bad_spec }, &store).await;
     assert_eq!(res["success"], false);
-    assert!(res["error"].as_str().unwrap_or("").contains("illegal characters"));
+    assert!(res["error"]
+        .as_str()
+        .unwrap_or("")
+        .contains("illegal characters"));
     Ok(())
 }
 
@@ -998,13 +996,21 @@ async fn test_watchdog_quiescence_anomaly() -> Result<(), Box<dyn std::error::Er
     assert!(check_res["new_alerts_emitted"].as_u64().unwrap_or(0) >= 1);
 
     let alerts = check_res["alerts"].as_array().ok_or("missing alerts")?;
-    let quiescence_alert = alerts
-        .iter()
-        .find(|a| a["category"] == "quiescence_anomaly" && a["source_entity"] == "table:categories");
+    let quiescence_alert = alerts.iter().find(|a| {
+        a["category"] == "quiescence_anomaly" && a["source_entity"] == "table:categories"
+    });
     assert!(quiescence_alert.is_some());
     let alert = quiescence_alert.ok_or("missing quiescence alert")?;
-    assert!(alert["title"].as_str().unwrap_or("").contains("Quiescence Anomaly"));
-    assert!(alert["metrics"]["mutations_last_minute"].as_u64().unwrap_or(0) >= 15);
+    assert!(alert["title"]
+        .as_str()
+        .unwrap_or("")
+        .contains("Quiescence Anomaly"));
+    assert!(
+        alert["metrics"]["mutations_last_minute"]
+            .as_u64()
+            .unwrap_or(0)
+            >= 15
+    );
 
     Ok(())
 }
@@ -1148,7 +1154,10 @@ async fn test_canvas_column_reordering_and_resizing() -> Result<(), Box<dyn std:
     // Reorder: move contact_name before id
     assert!(spec.reorder_columns("contact_name", "id", false));
     let col_names: Vec<&str> = spec.columns.iter().map(|c| c.name.as_str()).collect();
-    assert_eq!(col_names, vec!["contact_name", "id", "company_name", "city"]);
+    assert_eq!(
+        col_names,
+        vec!["contact_name", "id", "company_name", "city"]
+    );
 
     // Set custom column widths
     assert!(spec.set_column_width("contact_name", 180));

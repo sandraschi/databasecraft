@@ -371,7 +371,8 @@ mod tests {
         ));
 
         // Create table employees (quiescent archetype)
-        let create_emp = "CREATE TABLE IF NOT EXISTS employees (id INTEGER PRIMARY KEY, name TEXT);";
+        let create_emp =
+            "CREATE TABLE IF NOT EXISTS employees (id INTEGER PRIMARY KEY, name TEXT);";
         rt.block_on(dispatch(
             Command::Query {
                 sql: create_emp.to_string(),
@@ -385,10 +386,7 @@ mod tests {
         // Simulate high churn on quiescent employees table (> 10 mut/min)
         for i in 0..15 {
             let insert_sql = format!("INSERT INTO employees (name) VALUES ('Test-{i}');");
-            rt.block_on(dispatch(
-                Command::Query { sql: insert_sql },
-                &store,
-            ));
+            rt.block_on(dispatch(Command::Query { sql: insert_sql }, &store));
             rt.block_on(dispatch(
                 Command::WatchdogRecordMutation {
                     table: "employees".to_string(),
@@ -525,7 +523,8 @@ mod tests {
     }
 
     #[test]
-    fn test_canvas_interactive_column_resizing_and_reordering() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_canvas_interactive_column_resizing_and_reordering(
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let store = Arc::new(DatabaseStore::open_in_memory()?);
         let rt = Arc::new(Runtime::new()?);
 

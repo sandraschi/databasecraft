@@ -229,11 +229,17 @@ impl CanvasNestedRelation {
     pub fn reorder_columns(&mut self, from_col: &str, to_col: &str, drop_after: bool) -> bool {
         let from_idx = self.columns.iter().position(|c| {
             c.name.eq_ignore_ascii_case(from_col)
-                || c.alias.as_deref().unwrap_or("").eq_ignore_ascii_case(from_col)
+                || c.alias
+                    .as_deref()
+                    .unwrap_or("")
+                    .eq_ignore_ascii_case(from_col)
         });
         let to_idx = self.columns.iter().position(|c| {
             c.name.eq_ignore_ascii_case(to_col)
-                || c.alias.as_deref().unwrap_or("").eq_ignore_ascii_case(to_col)
+                || c.alias
+                    .as_deref()
+                    .unwrap_or("")
+                    .eq_ignore_ascii_case(to_col)
         });
 
         if let (Some(f), Some(t)) = (from_idx, to_idx) {
@@ -248,13 +254,18 @@ impl CanvasNestedRelation {
     pub fn set_column_width(&mut self, col_name: &str, width_px: u32) -> bool {
         if let Some(col) = self.columns.iter_mut().find(|c| {
             c.name.eq_ignore_ascii_case(col_name)
-                || c.alias.as_deref().unwrap_or("").eq_ignore_ascii_case(col_name)
+                || c.alias
+                    .as_deref()
+                    .unwrap_or("")
+                    .eq_ignore_ascii_case(col_name)
         }) {
             col.width_px = Some(width_px);
             true
-        } else if let Some(lookup) = self.inlined_lookups.iter_mut().find(|l| {
-            l.alias.eq_ignore_ascii_case(col_name)
-        }) {
+        } else if let Some(lookup) = self
+            .inlined_lookups
+            .iter_mut()
+            .find(|l| l.alias.eq_ignore_ascii_case(col_name))
+        {
             lookup.width_px = Some(width_px);
             true
         } else {
@@ -282,11 +293,17 @@ impl CanvasSpec {
     pub fn reorder_columns(&mut self, from_col: &str, to_col: &str, drop_after: bool) -> bool {
         let from_idx = self.columns.iter().position(|c| {
             c.name.eq_ignore_ascii_case(from_col)
-                || c.alias.as_deref().unwrap_or("").eq_ignore_ascii_case(from_col)
+                || c.alias
+                    .as_deref()
+                    .unwrap_or("")
+                    .eq_ignore_ascii_case(from_col)
         });
         let to_idx = self.columns.iter().position(|c| {
             c.name.eq_ignore_ascii_case(to_col)
-                || c.alias.as_deref().unwrap_or("").eq_ignore_ascii_case(to_col)
+                || c.alias
+                    .as_deref()
+                    .unwrap_or("")
+                    .eq_ignore_ascii_case(to_col)
         });
 
         if let (Some(f), Some(t)) = (from_idx, to_idx) {
@@ -298,9 +315,20 @@ impl CanvasSpec {
     }
 
     /// Reorders inlined lookups (Compact Joins) by alias.
-    pub fn reorder_inlined_lookups(&mut self, from_alias: &str, to_alias: &str, drop_after: bool) -> bool {
-        let from_idx = self.inlined_lookups.iter().position(|l| l.alias.eq_ignore_ascii_case(from_alias));
-        let to_idx = self.inlined_lookups.iter().position(|l| l.alias.eq_ignore_ascii_case(to_alias));
+    pub fn reorder_inlined_lookups(
+        &mut self,
+        from_alias: &str,
+        to_alias: &str,
+        drop_after: bool,
+    ) -> bool {
+        let from_idx = self
+            .inlined_lookups
+            .iter()
+            .position(|l| l.alias.eq_ignore_ascii_case(from_alias));
+        let to_idx = self
+            .inlined_lookups
+            .iter()
+            .position(|l| l.alias.eq_ignore_ascii_case(to_alias));
         if let (Some(f), Some(t)) = (from_idx, to_idx) {
             reorder_slice(&mut self.inlined_lookups, f, t, drop_after);
             true
@@ -313,13 +341,18 @@ impl CanvasSpec {
     pub fn set_column_width(&mut self, col_name: &str, width_px: u32) -> bool {
         if let Some(col) = self.columns.iter_mut().find(|c| {
             c.name.eq_ignore_ascii_case(col_name)
-                || c.alias.as_deref().unwrap_or("").eq_ignore_ascii_case(col_name)
+                || c.alias
+                    .as_deref()
+                    .unwrap_or("")
+                    .eq_ignore_ascii_case(col_name)
         }) {
             col.width_px = Some(width_px);
             true
-        } else if let Some(lookup) = self.inlined_lookups.iter_mut().find(|l| {
-            l.alias.eq_ignore_ascii_case(col_name)
-        }) {
+        } else if let Some(lookup) = self
+            .inlined_lookups
+            .iter_mut()
+            .find(|l| l.alias.eq_ignore_ascii_case(col_name))
+        {
             lookup.width_px = Some(width_px);
             true
         } else {
@@ -558,13 +591,34 @@ impl CanvasCompiler {
             for f in &spec.filters {
                 let quoted_col = quote_ident(&f.column)?;
                 let clause = match f.op {
-                    FilterOp::Eq => format!("{root_alias}.{quoted_col} = {}", format_filter_value(&f.value)?),
-                    FilterOp::Neq => format!("{root_alias}.{quoted_col} != {}", format_filter_value(&f.value)?),
-                    FilterOp::Gt => format!("{root_alias}.{quoted_col} > {}", format_filter_value(&f.value)?),
-                    FilterOp::Gte => format!("{root_alias}.{quoted_col} >= {}", format_filter_value(&f.value)?),
-                    FilterOp::Lt => format!("{root_alias}.{quoted_col} < {}", format_filter_value(&f.value)?),
-                    FilterOp::Lte => format!("{root_alias}.{quoted_col} <= {}", format_filter_value(&f.value)?),
-                    FilterOp::Like => format!("{root_alias}.{quoted_col} LIKE {}", format_filter_value(&f.value)?),
+                    FilterOp::Eq => format!(
+                        "{root_alias}.{quoted_col} = {}",
+                        format_filter_value(&f.value)?
+                    ),
+                    FilterOp::Neq => format!(
+                        "{root_alias}.{quoted_col} != {}",
+                        format_filter_value(&f.value)?
+                    ),
+                    FilterOp::Gt => format!(
+                        "{root_alias}.{quoted_col} > {}",
+                        format_filter_value(&f.value)?
+                    ),
+                    FilterOp::Gte => format!(
+                        "{root_alias}.{quoted_col} >= {}",
+                        format_filter_value(&f.value)?
+                    ),
+                    FilterOp::Lt => format!(
+                        "{root_alias}.{quoted_col} < {}",
+                        format_filter_value(&f.value)?
+                    ),
+                    FilterOp::Lte => format!(
+                        "{root_alias}.{quoted_col} <= {}",
+                        format_filter_value(&f.value)?
+                    ),
+                    FilterOp::Like => format!(
+                        "{root_alias}.{quoted_col} LIKE {}",
+                        format_filter_value(&f.value)?
+                    ),
                     FilterOp::IsNull => format!("{root_alias}.{quoted_col} IS NULL"),
                     FilterOp::IsNotNull => format!("{root_alias}.{quoted_col} IS NOT NULL"),
                 };
@@ -632,7 +686,9 @@ impl CanvasCompiler {
         } else {
             // Table-level scalar or self-column aggregate
             let quoted_col = quote_ident(&agg.target_col)?;
-            Ok(format!("{agg_func}({parent_alias}.{quoted_col}) AS {quoted_alias}"))
+            Ok(format!(
+                "{agg_func}({parent_alias}.{quoted_col}) AS {quoted_alias}"
+            ))
         }
     }
 
@@ -694,7 +750,10 @@ impl CanvasCompiler {
             let _quoted_alias = quote_ident(&agg.alias)?;
             let agg_func = agg.func.as_sql();
             let quoted_target_col = quote_ident(&agg.target_col)?;
-            json_obj_pairs.push(format!("'{}', {agg_func}({child_alias}.{quoted_target_col})", agg.alias));
+            json_obj_pairs.push(format!(
+                "'{}', {agg_func}({child_alias}.{quoted_target_col})",
+                agg.alias
+            ));
         }
 
         // 3. Child recursive nested relations
@@ -706,7 +765,10 @@ impl CanvasCompiler {
 
         // If no columns are projected in the subquery, include the foreign key as fallback
         if json_obj_pairs.is_empty() {
-            json_obj_pairs.push(format!("'{}', {child_alias}.{quoted_foreign_key}", rel.foreign_key_col));
+            json_obj_pairs.push(format!(
+                "'{}', {child_alias}.{quoted_foreign_key}",
+                rel.foreign_key_col
+            ));
         }
 
         let mut where_clauses = vec![format!(
@@ -716,13 +778,34 @@ impl CanvasCompiler {
         for f in &rel.filters {
             let quoted_col = quote_ident(&f.column)?;
             let clause = match f.op {
-                FilterOp::Eq => format!("{child_alias}.{quoted_col} = {}", format_filter_value(&f.value)?),
-                FilterOp::Neq => format!("{child_alias}.{quoted_col} != {}", format_filter_value(&f.value)?),
-                FilterOp::Gt => format!("{child_alias}.{quoted_col} > {}", format_filter_value(&f.value)?),
-                FilterOp::Gte => format!("{child_alias}.{quoted_col} >= {}", format_filter_value(&f.value)?),
-                FilterOp::Lt => format!("{child_alias}.{quoted_col} < {}", format_filter_value(&f.value)?),
-                FilterOp::Lte => format!("{child_alias}.{quoted_col} <= {}", format_filter_value(&f.value)?),
-                FilterOp::Like => format!("{child_alias}.{quoted_col} LIKE {}", format_filter_value(&f.value)?),
+                FilterOp::Eq => format!(
+                    "{child_alias}.{quoted_col} = {}",
+                    format_filter_value(&f.value)?
+                ),
+                FilterOp::Neq => format!(
+                    "{child_alias}.{quoted_col} != {}",
+                    format_filter_value(&f.value)?
+                ),
+                FilterOp::Gt => format!(
+                    "{child_alias}.{quoted_col} > {}",
+                    format_filter_value(&f.value)?
+                ),
+                FilterOp::Gte => format!(
+                    "{child_alias}.{quoted_col} >= {}",
+                    format_filter_value(&f.value)?
+                ),
+                FilterOp::Lt => format!(
+                    "{child_alias}.{quoted_col} < {}",
+                    format_filter_value(&f.value)?
+                ),
+                FilterOp::Lte => format!(
+                    "{child_alias}.{quoted_col} <= {}",
+                    format_filter_value(&f.value)?
+                ),
+                FilterOp::Like => format!(
+                    "{child_alias}.{quoted_col} LIKE {}",
+                    format_filter_value(&f.value)?
+                ),
                 FilterOp::IsNull => format!("{child_alias}.{quoted_col} IS NULL"),
                 FilterOp::IsNotNull => format!("{child_alias}.{quoted_col} IS NOT NULL"),
             };
@@ -789,12 +872,14 @@ impl CanvasCompiler {
         }
 
         if json_obj_pairs.is_empty() {
-            json_obj_pairs.push(format!("'{}', {child_alias}.{quoted_foreign_key}", rel.foreign_key_col));
+            json_obj_pairs.push(format!(
+                "'{}', {child_alias}.{quoted_foreign_key}",
+                rel.foreign_key_col
+            ));
         }
 
-        let where_clause = format!(
-            "{child_alias}.{quoted_foreign_key} = {parent_alias}.{quoted_parent_key}"
-        );
+        let where_clause =
+            format!("{child_alias}.{quoted_foreign_key} = {parent_alias}.{quoted_parent_key}");
 
         Ok(format!(
             "SELECT COALESCE(json_group_array(json_object({})), json('[]')) FROM {} AS {} WHERE {}",
@@ -806,10 +891,7 @@ impl CanvasCompiler {
     }
 
     /// Execute a compiled canvas query and parse nested JSON payloads into a rich hierarchical result.
-    pub fn execute(
-        store: &DatabaseStore,
-        spec: &CanvasSpec,
-    ) -> Result<Value, DatabaseCraftError> {
+    pub fn execute(store: &DatabaseStore, spec: &CanvasSpec) -> Result<Value, DatabaseCraftError> {
         let sql = Self::compile_sql(spec)?;
         let raw_result = store.query(&sql)?;
 
