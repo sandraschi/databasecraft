@@ -732,4 +732,103 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_canvas_phase_b_filters_and_visibility() -> Result<(), Box<dyn std::error::Error>> {
+        use databasecraft_core::canvas::FilterOp;
+        let store = Arc::new(DatabaseStore::open_in_memory()?);
+        let rt = Arc::new(tokio::runtime::Runtime::new()?);
+
+        rt.block_on(databasecraft_core::dispatch(
+            databasecraft_core::Command::SeedDemo {
+                name: "northwind".to_string(),
+            },
+            &store,
+        ));
+
+        let mut gui = gui::DatabaseCraftGui::new(store.clone(), rt.clone());
+        gui.init_canvas_for_table("customers");
+        gui.sprout_relation("orders", true);
+
+        let initial_count = gui
+            .canvas_result
+            .as_ref()
+            .and_then(|r| r["result"]["data"].as_array())
+            .map(|a| a.len())
+            .unwrap_or(0);
+        assert!(initial_count >= 2, "Expected >= 2 customers");
+
+        // 1. Add SQL filter chip (Eq) and verify filtered result count
+        let first_company = gui
+            .canvas_result
+            .as_ref()
+            .and_then(|r| r["result"]["data"].as_array())
+            .and_then(|a| a.first())
+            .and_then(|row| row.get("company_name"))
+            .cloned()
+            .unwrap_or(serde_json::Value::String("Alfreds".to_string()));
+
+        gui.add_canvas_filter("company_name".to_string(), FilterOp::Eq, first_company);
+        let filtered_count = gui
+            .canvas_result
+            .as_ref()
+            .and_then(|r| r["result"]["data"].as_array())
+            .map(|a| a.len())
+            .unwrap_or(0);
+        assert_eq!(filtered_count, 1);
+        assert_eq!(
+            gui.canvas_spec.as_ref().map(|s| s.filters.len()),
+            Some(1)
+        );
+
+        // 2. Remove filter chip and verify all rows return
+        gui.remove_canvas_filter(0);
+        let restored_count = gui
+            .canvas_result
+            .as_ref()
+            .and_then(|r| r["result"]["data"].as_array())
+            .map(|a| a.len())
+            .unwrap_or(0);
+        assert_eq!(restored_count, initial_count);
+
+        // 3. Clear filters
+        gui.add_canvas_filter(
+            "company_name".to_string(),
+            FilterOp::IsNotNull,
+            serde_json::Value::Null,
+        );
+        gui.clear_canvas_filters();
+        assert_eq!(
+            gui.canvas_spec.as_ref().map(|s| s.filters.len()),
+            Some(0)
+        );
+
+        // 4. Column visibility toggles (root & nested)
+        gui.set_column_visibility("country", false);
+        assert_eq!(
+            gui.canvas_spec
+                .as_ref()
+                .and_then(|s| s.columns.iter().find(|c| c.name == "country"))
+                .map(|c| c.visible),
+            Some(false)
+        );
+        let nested_col = gui
+            .canvas_spec
+            .as_ref()
+            .and_then(|s| s.nested_relations.first())
+            .and_then(|r| r.columns.first())
+            .map(|c| c.name.clone())
+            .ok_or("missing nested relation column")?;
+        gui.set_nested_column_visibility("orders", &nested_col, false);
+        assert_eq!(
+            gui.canvas_spec
+                .as_ref()
+                .and_then(|s| s.nested_relations.first())
+                .and_then(|r| r.columns.iter().find(|c| c.name == nested_col))
+                .map(|c| c.visible),
+            Some(false)
+        );
+
+        Ok(())
+    }
 }

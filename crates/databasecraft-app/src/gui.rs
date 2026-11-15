@@ -11,7 +11,8 @@
 
 use databasecraft_core::canvas::{
     suggest_display_column, AggFunc, CanvasAggregation, CanvasColumn, CanvasCompiler,
-    CanvasInlinedLookup, CanvasNestedRelation, CanvasSort, CanvasSpec, TableRelations,
+    CanvasFilter, CanvasInlinedLookup, CanvasNestedRelation, CanvasSort, CanvasSpec, FilterOp,
+    TableRelations,
 };
 use databasecraft_core::notifications::{CraftNotification, NotificationSeverity};
 use databasecraft_core::{dispatch, models::ExportTarget, Command, APP_VERSION, CONTROL_PORT};
@@ -525,6 +526,11 @@ pub struct DatabaseCraftGui {
     pub recent_databases: Vec<String>,
     pub selected_cell: Option<(String, usize, String)>,
     pub show_tools_section: bool,
+    // Phase B: Inline filter chips & builder
+    pub filter_draft_col: String,
+    pub filter_draft_op: FilterOp,
+    pub filter_draft_val: String,
+    pub filter_builder_open: bool,
 }
 
 impl DatabaseCraftGui {
@@ -617,6 +623,10 @@ impl DatabaseCraftGui {
             ],
             selected_cell: None,
             show_tools_section: false,
+            filter_draft_col: String::new(),
+            filter_draft_op: FilterOp::Like,
+            filter_draft_val: String::new(),
+            filter_builder_open: false,
         };
 
         app.refresh_notifications();
@@ -1176,6 +1186,54 @@ impl DatabaseCraftGui {
         if let Some(ref mut spec) = self.canvas_spec {
             spec.nested_relations
                 .retain(|r| !r.relation_name.eq_ignore_ascii_case(rel_name));
+        }
+        self.run_canvas_query();
+    }
+
+    pub fn add_canvas_filter(&mut self, column: String, op: FilterOp, value: Value) {
+        if let Some(ref mut spec) = self.canvas_spec {
+            spec.filters.push(CanvasFilter { column, op, value });
+        }
+        self.run_canvas_query();
+    }
+
+    pub fn remove_canvas_filter(&mut self, idx: usize) {
+        if let Some(ref mut spec) = self.canvas_spec {
+            if idx < spec.filters.len() {
+                spec.filters.remove(idx);
+            }
+        }
+        self.run_canvas_query();
+    }
+
+    pub fn clear_canvas_filters(&mut self) {
+        if let Some(ref mut spec) = self.canvas_spec {
+            spec.filters.clear();
+        }
+        self.run_canvas_query();
+    }
+
+    pub fn set_column_visibility(&mut self, col_name: &str, visible: bool) {
+        if let Some(ref mut spec) = self.canvas_spec {
+            if let Some(c) = spec.columns.iter_mut().find(|c| c.name == col_name) {
+                c.visible = visible;
+            }
+        }
+        self.run_canvas_query();
+    }
+
+    #[cfg(test)]
+    pub fn set_nested_column_visibility(&mut self, rel_name: &str, col_name: &str, visible: bool) {
+        if let Some(ref mut spec) = self.canvas_spec {
+            if let Some(rel) = spec
+                .nested_relations
+                .iter_mut()
+                .find(|r| r.relation_name.eq_ignore_ascii_case(rel_name))
+            {
+                if let Some(c) = rel.columns.iter_mut().find(|c| c.name == col_name) {
+                    c.visible = visible;
+                }
+            }
         }
         self.run_canvas_query();
     }
@@ -3288,10 +3346,13 @@ impl eframe::App for DatabaseCraftGui {
                 let mut remove_sprout_action: Option<String> = None;
                 let mut remove_inline_action: Option<String> = None;
                 let mut remove_agg_alias: Option<String> = None;
+                let mut remove_filter_idx: Option<usize> = None;
+                let mut add_filter_action: Option<(String, FilterOp, Value)> = None;
+                let mut clear_filters_action = false;
 
                 if let Some(ref rels) = self.canvas_relations.clone() {
                     ui.horizontal_wrapped(|ui| {
-                        ui.weak("Relations:");
+                        ui.colored_label(palette.text_muted, "Relations:");
 
                         // Reverse relations (1:N)
                         for r in &rels.reverse_relations {
@@ -3304,15 +3365,15 @@ impl eframe::App for DatabaseCraftGui {
                             if is_sprouted {
                                 if ui
                                     .button(
-                                        egui::RichText::new(format!("✓ {} (1:N) ✖", r.relation_name))
-                                            .color(sky_blue)
+                                        egui::RichText::new(format!("✓ {} (1:N) ×", r.relation_name))
+                                            .color(palette.tier1_sub_text)
                                             .strong(),
                                     )
                                     .clicked()
                                 {
                                     remove_sprout_action = Some(r.relation_name.clone());
                                 }
-                            } else if ui.button(format!("+ ⤹ Sprout: {} (1:N)", r.relation_name)).clicked() {
+                            } else if ui.button(format!("+ {} (1:N)", r.relation_name)).clicked() {
                                 sprout_action = Some((r.relation_name.clone(), true));
                             }
                         }
@@ -3328,8 +3389,8 @@ impl eframe::App for DatabaseCraftGui {
                             if is_sprouted {
                                 if ui
                                     .button(
-                                        egui::RichText::new(format!("✓ {} (N:1) ✖", r.relation_name))
-                                            .color(sky_blue)
+                                        egui::RichText::new(format!("✓ {} (N:1) ×", r.relation_name))
+                                            .color(palette.tier1_sub_text)
                                             .strong(),
                                     )
                                     .clicked()
@@ -3337,10 +3398,10 @@ impl eframe::App for DatabaseCraftGui {
                                     remove_sprout_action = Some(r.relation_name.clone());
                                 }
                             } else {
-                                if ui.button(format!("+ 🔗 Sprout: {} (N:1)", r.relation_name)).clicked() {
+                                if ui.button(format!("+ {} (N:1)", r.relation_name)).clicked() {
                                     sprout_action = Some((r.relation_name.clone(), false));
                                 }
-                                if ui.button(format!("+ 🏷️ Inline: {} (N:1)", r.relation_name)).clicked() {
+                                if ui.button(format!("+ Inline: {}", r.relation_name)).clicked() {
                                     inline_action = Some(r.relation_name.clone());
                                 }
                             }
@@ -3351,8 +3412,8 @@ impl eframe::App for DatabaseCraftGui {
                             for lookup in &spec.inlined_lookups {
                                 if ui
                                     .button(
-                                        egui::RichText::new(format!("✓ 🏷️ {} ✖", lookup.alias))
-                                            .color(Color32::from_rgb(192, 132, 252))
+                                        egui::RichText::new(format!("✓ {} ×", lookup.alias))
+                                            .color(palette.tier1_lookup_text)
                                             .strong(),
                                     )
                                     .clicked()
@@ -3368,10 +3429,10 @@ impl eframe::App for DatabaseCraftGui {
                                 if ui
                                     .button(
                                         egui::RichText::new(format!(
-                                             "∑ {}: {:?}({}) ✖",
+                                            "∑ {}: {:?}({}) ×",
                                             agg.alias, agg.func, agg.target_col
                                         ))
-                                        .color(amber),
+                                        .color(palette.tier1_rollup_text),
                                     )
                                     .clicked()
                                 {
@@ -3380,6 +3441,144 @@ impl eframe::App for DatabaseCraftGui {
                             }
                         }
                     });
+                }
+
+                // Active SQL Filter Chips & Inline Filter Builder
+                if let Some(ref spec) = self.canvas_spec {
+                    let active_filters = spec.filters.clone();
+                    let col_names: Vec<String> = spec.columns.iter().map(|c| c.name.clone()).collect();
+                    if self.filter_draft_col.is_empty() {
+                        if let Some(first) = col_names.first() {
+                            self.filter_draft_col = first.clone();
+                        }
+                    }
+
+                    ui.horizontal_wrapped(|ui| {
+                        ui.colored_label(palette.text_muted, "Filters:");
+                        for (idx, f) in active_filters.iter().enumerate() {
+                            let op_str = match f.op {
+                                FilterOp::Eq => "=",
+                                FilterOp::Neq => "!=",
+                                FilterOp::Gt => ">",
+                                FilterOp::Gte => ">=",
+                                FilterOp::Lt => "<",
+                                FilterOp::Lte => "<=",
+                                FilterOp::Like => "~",
+                                FilterOp::IsNull => "IS NULL",
+                                FilterOp::IsNotNull => "IS NOT NULL",
+                            };
+                            let chip_text = match f.op {
+                                FilterOp::IsNull | FilterOp::IsNotNull => {
+                                    format!("{} {} ×", f.column, op_str)
+                                }
+                                _ => format!("{} {} {} ×", f.column, op_str, f.value),
+                            };
+                            if ui
+                                .button(
+                                    egui::RichText::new(chip_text)
+                                        .color(palette.accent_selection)
+                                        .strong(),
+                                )
+                                .clicked()
+                            {
+                                remove_filter_idx = Some(idx);
+                            }
+                        }
+
+                        if !active_filters.is_empty() && ui.small_button("Clear all").clicked() {
+                            clear_filters_action = true;
+                        }
+
+                        let builder_label = if self.filter_builder_open {
+                            "× Filter"
+                        } else {
+                            "+ Filter"
+                        };
+                        if ui.small_button(builder_label).clicked() {
+                            self.filter_builder_open = !self.filter_builder_open;
+                        }
+                    });
+
+                    if self.filter_builder_open {
+                        ui.horizontal(|ui| {
+                            egui::ComboBox::from_id_salt("canvas_filter_col")
+                                .selected_text(&self.filter_draft_col)
+                                .width(130.0)
+                                .show_ui(ui, |ui| {
+                                    for c in &col_names {
+                                        ui.selectable_value(&mut self.filter_draft_col, c.clone(), c);
+                                    }
+                                });
+
+                            let op_label = match self.filter_draft_op {
+                                FilterOp::Eq => "=",
+                                FilterOp::Neq => "!=",
+                                FilterOp::Gt => ">",
+                                FilterOp::Gte => ">=",
+                                FilterOp::Lt => "<",
+                                FilterOp::Lte => "<=",
+                                FilterOp::Like => "contains",
+                                FilterOp::IsNull => "is null",
+                                FilterOp::IsNotNull => "is not null",
+                            };
+                            egui::ComboBox::from_id_salt("canvas_filter_op")
+                                .selected_text(op_label)
+                                .width(95.0)
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(&mut self.filter_draft_op, FilterOp::Like, "contains");
+                                    ui.selectable_value(&mut self.filter_draft_op, FilterOp::Eq, "=");
+                                    ui.selectable_value(&mut self.filter_draft_op, FilterOp::Neq, "!=");
+                                    ui.selectable_value(&mut self.filter_draft_op, FilterOp::Gt, ">");
+                                    ui.selectable_value(&mut self.filter_draft_op, FilterOp::Gte, ">=");
+                                    ui.selectable_value(&mut self.filter_draft_op, FilterOp::Lt, "<");
+                                    ui.selectable_value(&mut self.filter_draft_op, FilterOp::Lte, "<=");
+                                    ui.selectable_value(&mut self.filter_draft_op, FilterOp::IsNull, "is null");
+                                    ui.selectable_value(&mut self.filter_draft_op, FilterOp::IsNotNull, "is not null");
+                                });
+
+                            let needs_val = !matches!(
+                                self.filter_draft_op,
+                                FilterOp::IsNull | FilterOp::IsNotNull
+                            );
+                            if needs_val {
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.filter_draft_val)
+                                        .hint_text("value...")
+                                        .desired_width(140.0),
+                                );
+                            }
+
+                            let enter_pressed = needs_val
+                                && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                            if (ui.button("Apply").clicked() || enter_pressed)
+                                && !self.filter_draft_col.is_empty()
+                            {
+                                let raw = self.filter_draft_val.trim();
+                                let val = if self.filter_draft_op == FilterOp::Like {
+                                    if raw.contains('%') {
+                                        Value::String(raw.to_string())
+                                    } else {
+                                        Value::String(format!("%{raw}%"))
+                                    }
+                                } else if let Ok(n) = raw.parse::<i64>() {
+                                    Value::Number(n.into())
+                                } else if let Ok(f) = raw.parse::<f64>() {
+                                    serde_json::Number::from_f64(f)
+                                        .map(Value::Number)
+                                        .unwrap_or_else(|| Value::String(raw.to_string()))
+                                } else {
+                                    Value::String(raw.to_string())
+                                };
+                                add_filter_action = Some((
+                                    self.filter_draft_col.clone(),
+                                    self.filter_draft_op,
+                                    val,
+                                ));
+                                self.filter_draft_val.clear();
+                                self.filter_builder_open = false;
+                            }
+                        });
+                    }
                 }
 
                 if let Some((rel, is_rev)) = sprout_action {
@@ -3396,6 +3595,15 @@ impl eframe::App for DatabaseCraftGui {
                 }
                 if let Some(alias) = remove_agg_alias {
                     self.remove_canvas_aggregation(&alias);
+                }
+                if let Some(idx) = remove_filter_idx {
+                    self.remove_canvas_filter(idx);
+                }
+                if clear_filters_action {
+                    self.clear_canvas_filters();
+                }
+                if let Some((col, op, val)) = add_filter_action {
+                    self.add_canvas_filter(col, op, val);
                 }
                 ui.separator();
 
@@ -3531,6 +3739,10 @@ impl eframe::App for DatabaseCraftGui {
                             let mut start_drag_col: Option<String> = None;
                             let mut update_drop_target: Option<Option<(String, bool)>> = None;
                             let mut clear_drag = false;
+                            let mut hide_col_action: Option<String> = None;
+                            let mut cell_filter_action: Option<(String, FilterOp, Value)> = None;
+                            let mut header_sprout_action: Option<(String, bool)> = None;
+                            let mut header_inline_action: Option<String> = None;
 
                             let mut col_widths_map = std::collections::HashMap::new();
                             for c in &root_cols {
@@ -3575,7 +3787,7 @@ impl eframe::App for DatabaseCraftGui {
                                         ui.horizontal(|ui| {
                                             ui.spacing_mut().item_spacing = Vec2::ZERO;
 
-                                            // Root Table Header Box
+                                            // Root Table Header Box with 1-click + Rel menu
                                             let root_title = current_table.to_uppercase();
                                             egui::Frame::new()
                                                 .fill(palette.tier1_root_bg)
@@ -3583,13 +3795,44 @@ impl eframe::App for DatabaseCraftGui {
                                                     1.0,
                                                     palette.tier1_root_border,
                                                 ))
-                                                .inner_margin(egui::Margin::symmetric(12, 4))
+                                                .inner_margin(egui::Margin::symmetric(10, 3))
                                                 .show(ui, |ui| {
-                                                    ui.strong(
-                                                        egui::RichText::new(root_title)
-                                                            .size(font_size + 1.0)
-                                                            .color(palette.tier1_root_text),
-                                                    );
+                                                    ui.horizontal(|ui| {
+                                                        ui.strong(
+                                                            egui::RichText::new(root_title)
+                                                                .size(font_size + 1.0)
+                                                                .color(palette.tier1_root_text),
+                                                        );
+                                                        if let Some(ref rels) = self.canvas_relations {
+                                                            if !rels.reverse_relations.is_empty()
+                                                                || !rels.forward_relations.is_empty()
+                                                            {
+                                                                ui.menu_button(
+                                                                    egui::RichText::new("+")
+                                                                        .color(palette.tier1_root_text)
+                                                                        .strong(),
+                                                                    |ui| {
+                                                                        for r in &rels.reverse_relations {
+                                                                            if ui.button(format!("Sprout {} (1:N)", r.relation_name)).clicked() {
+                                                                                header_sprout_action = Some((r.relation_name.clone(), true));
+                                                                                ui.close();
+                                                                            }
+                                                                        }
+                                                                        for r in &rels.forward_relations {
+                                                                            if ui.button(format!("Sprout {} (N:1)", r.relation_name)).clicked() {
+                                                                                header_sprout_action = Some((r.relation_name.clone(), false));
+                                                                                ui.close();
+                                                                            }
+                                                                            if ui.button(format!("Inline {} (N:1)", r.relation_name)).clicked() {
+                                                                                header_inline_action = Some(r.relation_name.clone());
+                                                                                ui.close();
+                                                                            }
+                                                                        }
+                                                                    },
+                                                                );
+                                                            }
+                                                        }
+                                                    });
                                                 });
 
                                             // Inlined Lookups Band
@@ -3718,6 +3961,20 @@ impl eframe::App for DatabaseCraftGui {
                                                 if header_resp.clicked() && !header_resp.dragged() {
                                                     toggle_sort_col = Some(col.clone());
                                                 }
+                                                header_resp.context_menu(|ui| {
+                                                    if ui.button("Toggle Sort").clicked() {
+                                                        toggle_sort_col = Some(col.clone());
+                                                        ui.close();
+                                                    }
+                                                    if ui.button("Hide Column").clicked() {
+                                                        hide_col_action = Some(col.clone());
+                                                        ui.close();
+                                                    }
+                                                    if ui.button("Reset Width").clicked() {
+                                                        reset_action = Some(col.clone());
+                                                        ui.close();
+                                                    }
+                                                });
 
                                                 ui.painter().rect_filled(header_rect, 0.0, bg_col);
                                                 ui.painter().rect_stroke(
@@ -4140,6 +4397,52 @@ impl eframe::App for DatabaseCraftGui {
                                                                                     val_str,
                                                                                 ));
                                                                             }
+
+                                                                            cell_resp.context_menu(|ui| {
+                                                                                if val.is_null() {
+                                                                                    if ui.button(format!("Filter: {col} IS NULL")).clicked() {
+                                                                                        cell_filter_action = Some((col.clone(), FilterOp::IsNull, Value::Null));
+                                                                                        ui.close();
+                                                                                    }
+                                                                                    if ui.button(format!("Filter: {col} IS NOT NULL")).clicked() {
+                                                                                        cell_filter_action = Some((col.clone(), FilterOp::IsNotNull, Value::Null));
+                                                                                        ui.close();
+                                                                                    }
+                                                                                } else {
+                                                                                    let preview = match val {
+                                                                                        Value::String(s) => s.clone(),
+                                                                                        _ => val.to_string(),
+                                                                                    };
+                                                                                    if ui.button(format!("Filter: {col} = {preview}")).clicked() {
+                                                                                        cell_filter_action = Some((col.clone(), FilterOp::Eq, val.clone()));
+                                                                                        ui.close();
+                                                                                    }
+                                                                                    if ui.button(format!("Filter: {col} != {preview}")).clicked() {
+                                                                                        cell_filter_action = Some((col.clone(), FilterOp::Neq, val.clone()));
+                                                                                        ui.close();
+                                                                                    }
+                                                                                    if ui.button("Copy Value").clicked() {
+                                                                                        ui.ctx().copy_text(preview);
+                                                                                        ui.close();
+                                                                                    }
+                                                                                }
+                                                                                ui.separator();
+                                                                                if ui.button("Edit Cell").clicked() {
+                                                                                    let val_str = match val {
+                                                                                        Value::String(s) => s.clone(),
+                                                                                        Value::Null => "".to_string(),
+                                                                                        _ => val.to_string(),
+                                                                                    };
+                                                                                    start_cell_edit = Some((
+                                                                                        current_table.clone(),
+                                                                                        pk_col.clone(),
+                                                                                        row_pk_val.clone(),
+                                                                                        col.clone(),
+                                                                                        val_str,
+                                                                                    ));
+                                                                                    ui.close();
+                                                                                }
+                                                                            });
                                                                         }
                                                                     });
                                                             }
@@ -4388,6 +4691,18 @@ impl eframe::App for DatabaseCraftGui {
                                 self.canvas_dragged_col = None;
                                 self.canvas_drop_target = None;
                             }
+                            if let Some(col) = hide_col_action {
+                                self.set_column_visibility(&col, false);
+                            }
+                            if let Some((col, op, val)) = cell_filter_action {
+                                self.add_canvas_filter(col, op, val);
+                            }
+                            if let Some((rel, is_rev)) = header_sprout_action {
+                                self.sprout_relation(&rel, is_rev);
+                            }
+                            if let Some(rel) = header_inline_action {
+                                self.inline_foreign_key(&rel);
+                            }
                         }
                     } else {
                         ui.colored_label(
@@ -4405,14 +4720,29 @@ impl eframe::App for DatabaseCraftGui {
                 // Field Selector Modal Palette Window
                 if self.canvas_field_selector_open {
                     let mut is_open = true;
-                    egui::Window::new("🎛 Fields & Joins Palette (Ultorg-Style)")
+                    egui::Window::new("Fields & Joins")
                         .open(&mut is_open)
-                        .default_width(380.0)
+                        .default_width(390.0)
                         .show(ui.ctx(), |ui| {
-                            ui.heading("Field Selector");
+                            ui.horizontal(|ui| {
+                                ui.strong("Root Table Columns");
+                                if ui.small_button("Show All").clicked() {
+                                    if let Some(ref mut spec) = self.canvas_spec {
+                                        for c in &mut spec.columns {
+                                            c.visible = true;
+                                        }
+                                    }
+                                }
+                                if ui.small_button("Hide All").clicked() {
+                                    if let Some(ref mut spec) = self.canvas_spec {
+                                        for c in &mut spec.columns {
+                                            c.visible = false;
+                                        }
+                                    }
+                                }
+                            });
                             ui.separator();
 
-                            ui.strong("Root Table Attributes & Column Order:");
                             let mut move_col_action: Option<(String, String, bool)> = None;
                             if let Some(ref mut spec) = self.canvas_spec {
                                 for i in 0..spec.columns.len() {
@@ -4428,6 +4758,19 @@ impl eframe::App for DatabaseCraftGui {
                                             move_col_action = Some((col_name, next_name, true));
                                         }
                                     });
+                                }
+
+                                if !spec.nested_relations.is_empty() {
+                                    ui.separator();
+                                    ui.strong("Nested Relation Columns");
+                                    for rel in &mut spec.nested_relations {
+                                        ui.label(egui::RichText::new(&rel.relation_name).strong());
+                                        ui.horizontal_wrapped(|ui| {
+                                            for c in &mut rel.columns {
+                                                ui.checkbox(&mut c.visible, &c.name);
+                                            }
+                                        });
+                                    }
                                 }
                             }
                             if let Some((from, to, drop_after)) = move_col_action {
@@ -4490,7 +4833,7 @@ impl eframe::App for DatabaseCraftGui {
 
                             let target_relation: Option<String> = sprout_options.first().cloned();
 
-                            if ui.button("➕ Add Rollup").clicked() {
+                            if ui.button("+ Add Rollup").clicked() {
                                 let col = self.canvas_rollup_col.clone();
                                 let func = self.canvas_rollup_func;
                                 let alias = self.canvas_rollup_alias.clone();
