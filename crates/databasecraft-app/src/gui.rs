@@ -152,15 +152,144 @@ fn render_status_pill(
         });
 }
 
+#[derive(Debug, Clone, Copy)]
+struct CanvasPalette {
+    is_dark: bool,
+    bg_canvas: Color32,
+    bg_zebra: Color32,
+    bg_sub_even: Color32,
+    bg_sub_odd: Color32,
+    bg_header: Color32,
+    bg_header_drag: Color32,
+    border_hairline: Color32,
+    border_parent_sep: Color32,
+    text_primary: Color32,
+    text_muted: Color32,
+    text_header: Color32,
+    accent_primary: Color32,
+    accent_selection: Color32,
+    tier1_root_bg: Color32,
+    tier1_root_border: Color32,
+    tier1_root_text: Color32,
+    tier1_lookup_bg: Color32,
+    tier1_lookup_border: Color32,
+    tier1_lookup_text: Color32,
+    tier1_sub_bg: Color32,
+    tier1_sub_border: Color32,
+    tier1_sub_text: Color32,
+    tier1_rollup_bg: Color32,
+    tier1_rollup_border: Color32,
+    tier1_rollup_text: Color32,
+    tier2_lookup_bg: Color32,
+    tier2_sub_bg: Color32,
+    tier2_rollup_bg: Color32,
+    currency_text: Color32,
+    number_text: Color32,
+    qty_text: Color32,
+    pct_text: Color32,
+}
+
+impl CanvasPalette {
+    fn from_ui(ui: &egui::Ui) -> Self {
+        if ui.visuals().dark_mode {
+            Self::dark()
+        } else {
+            Self::light()
+        }
+    }
+
+    fn light() -> Self {
+        Self {
+            is_dark: false,
+            bg_canvas: Color32::from_rgb(255, 255, 255),
+            bg_zebra: Color32::from_rgb(248, 250, 252),
+            bg_sub_even: Color32::from_rgb(255, 255, 255),
+            bg_sub_odd: Color32::from_rgb(248, 250, 252),
+            bg_header: Color32::from_rgb(241, 245, 249),
+            bg_header_drag: Color32::from_rgb(219, 234, 254),
+            border_hairline: Color32::from_rgb(226, 232, 240),
+            border_parent_sep: Color32::from_rgb(203, 213, 225),
+            text_primary: Color32::from_rgb(15, 23, 42),
+            text_muted: Color32::from_rgb(100, 116, 139),
+            text_header: Color32::from_rgb(51, 65, 85),
+            accent_primary: Color32::from_rgb(15, 118, 110),
+            accent_selection: Color32::from_rgb(37, 99, 235),
+            tier1_root_bg: Color32::from_rgb(236, 253, 245),
+            tier1_root_border: Color32::from_rgb(167, 243, 208),
+            tier1_root_text: Color32::from_rgb(6, 95, 70),
+            tier1_lookup_bg: Color32::from_rgb(245, 243, 255),
+            tier1_lookup_border: Color32::from_rgb(221, 214, 254),
+            tier1_lookup_text: Color32::from_rgb(91, 33, 182),
+            tier1_sub_bg: Color32::from_rgb(239, 246, 255),
+            tier1_sub_border: Color32::from_rgb(191, 219, 254),
+            tier1_sub_text: Color32::from_rgb(30, 64, 175),
+            tier1_rollup_bg: Color32::from_rgb(255, 251, 235),
+            tier1_rollup_border: Color32::from_rgb(253, 230, 138),
+            tier1_rollup_text: Color32::from_rgb(146, 64, 14),
+            tier2_lookup_bg: Color32::from_rgb(250, 245, 255),
+            tier2_sub_bg: Color32::from_rgb(248, 250, 252),
+            tier2_rollup_bg: Color32::from_rgb(254, 252, 232),
+            currency_text: Color32::from_rgb(4, 120, 87),
+            number_text: Color32::from_rgb(30, 41, 59),
+            qty_text: Color32::from_rgb(3, 105, 161),
+            pct_text: Color32::from_rgb(2, 132, 199),
+        }
+    }
+
+    fn dark() -> Self {
+        Self {
+            is_dark: true,
+            bg_canvas: Color32::from_rgb(17, 19, 23),
+            bg_zebra: Color32::from_rgb(24, 27, 33),
+            bg_sub_even: Color32::from_rgb(20, 23, 29),
+            bg_sub_odd: Color32::from_rgb(26, 30, 38),
+            bg_header: Color32::from_rgb(24, 27, 33),
+            bg_header_drag: Color32::from_rgb(30, 48, 64),
+            border_hairline: Color32::from_rgb(38, 42, 50),
+            border_parent_sep: Color32::from_rgb(55, 65, 81),
+            text_primary: Color32::from_rgb(241, 245, 249),
+            text_muted: Color32::from_rgb(148, 163, 184),
+            text_header: Color32::from_rgb(52, 211, 153),
+            accent_primary: Color32::from_rgb(16, 185, 129),
+            accent_selection: Color32::from_rgb(56, 189, 248),
+            tier1_root_bg: Color32::from_rgb(16, 75, 70),
+            tier1_root_border: Color32::from_rgb(13, 148, 136),
+            tier1_root_text: Color32::WHITE,
+            tier1_lookup_bg: Color32::from_rgb(58, 28, 92),
+            tier1_lookup_border: Color32::from_rgb(168, 85, 247),
+            tier1_lookup_text: Color32::from_rgb(233, 213, 255),
+            tier1_sub_bg: Color32::from_rgb(22, 50, 78),
+            tier1_sub_border: Color32::from_rgb(14, 165, 233),
+            tier1_sub_text: Color32::from_rgb(186, 230, 253),
+            tier1_rollup_bg: Color32::from_rgb(66, 48, 16),
+            tier1_rollup_border: Color32::from_rgb(245, 158, 11),
+            tier1_rollup_text: Color32::from_rgb(254, 243, 199),
+            tier2_lookup_bg: Color32::from_rgb(26, 20, 36),
+            tier2_sub_bg: Color32::from_rgb(20, 24, 32),
+            tier2_rollup_bg: Color32::from_rgb(28, 25, 20),
+            currency_text: Color32::from_rgb(52, 211, 153),
+            number_text: Color32::from_rgb(226, 232, 240),
+            qty_text: Color32::from_rgb(186, 230, 253),
+            pct_text: Color32::from_rgb(56, 189, 248),
+        }
+    }
+}
+
 fn render_formatted_cell(
     ui: &mut egui::Ui,
     col_name: &str,
     val: &Value,
     density: CanvasDensity,
+    palette: &CanvasPalette,
 ) {
     let font_size = density.font_size();
     if val.is_null() {
-        ui.colored_label(Color32::from_rgb(107, 114, 128), "—");
+        ui.label(
+            egui::RichText::new("null")
+                .italics()
+                .size(font_size)
+                .color(palette.text_muted),
+        );
         return;
     }
 
@@ -172,58 +301,81 @@ fn render_formatted_cell(
             || s_lower == "active"
             || s_lower == "completed"
         {
-            render_status_pill(
-                ui,
-                s,
-                Color32::from_rgba_unmultiplied(16, 185, 129, 45),
-                Color32::from_rgb(52, 211, 153),
-                Color32::from_rgb(167, 243, 208),
-                font_size,
-            );
+            let (bg, border, fg) = if palette.is_dark {
+                (
+                    Color32::from_rgba_unmultiplied(16, 185, 129, 45),
+                    Color32::from_rgb(52, 211, 153),
+                    Color32::from_rgb(167, 243, 208),
+                )
+            } else {
+                (
+                    Color32::from_rgb(236, 253, 245),
+                    Color32::from_rgb(16, 185, 129),
+                    Color32::from_rgb(6, 95, 70),
+                )
+            };
+            render_status_pill(ui, s, bg, border, fg, font_size);
         } else if s_lower == "processing" || s_lower == "hold" || s_lower == "in_progress" {
-            render_status_pill(
-                ui,
-                s,
-                Color32::from_rgba_unmultiplied(14, 165, 233, 45),
-                Color32::from_rgb(56, 189, 248),
-                Color32::from_rgb(186, 230, 253),
-                font_size,
-            );
+            let (bg, border, fg) = if palette.is_dark {
+                (
+                    Color32::from_rgba_unmultiplied(14, 165, 233, 45),
+                    Color32::from_rgb(56, 189, 248),
+                    Color32::from_rgb(186, 230, 253),
+                )
+            } else {
+                (
+                    Color32::from_rgb(239, 246, 255),
+                    Color32::from_rgb(59, 130, 246),
+                    Color32::from_rgb(30, 64, 175),
+                )
+            };
+            render_status_pill(ui, s, bg, border, fg, font_size);
         } else if s_lower == "pending" || s_lower == "review" {
-            render_status_pill(
-                ui,
-                s,
-                Color32::from_rgba_unmultiplied(245, 158, 11, 45),
-                Color32::from_rgb(251, 191, 36),
-                Color32::from_rgb(254, 243, 199),
-                font_size,
-            );
+            let (bg, border, fg) = if palette.is_dark {
+                (
+                    Color32::from_rgba_unmultiplied(245, 158, 11, 45),
+                    Color32::from_rgb(251, 191, 36),
+                    Color32::from_rgb(254, 243, 199),
+                )
+            } else {
+                (
+                    Color32::from_rgb(255, 251, 235),
+                    Color32::from_rgb(245, 158, 11),
+                    Color32::from_rgb(146, 64, 14),
+                )
+            };
+            render_status_pill(ui, s, bg, border, fg, font_size);
         } else if s_lower == "ng"
             || s_lower == "cancelled"
             || s_lower == "failed"
             || s_lower == "inactive"
         {
-            render_status_pill(
-                ui,
-                s,
-                Color32::from_rgba_unmultiplied(239, 68, 68, 45),
-                Color32::from_rgb(248, 113, 113),
-                Color32::from_rgb(254, 202, 202),
-                font_size,
-            );
+            let (bg, border, fg) = if palette.is_dark {
+                (
+                    Color32::from_rgba_unmultiplied(239, 68, 68, 45),
+                    Color32::from_rgb(248, 113, 113),
+                    Color32::from_rgb(254, 202, 202),
+                )
+            } else {
+                (
+                    Color32::from_rgb(254, 242, 242),
+                    Color32::from_rgb(239, 68, 68),
+                    Color32::from_rgb(153, 27, 27),
+                )
+            };
+            render_status_pill(ui, s, bg, border, fg, font_size);
         } else if col_name.contains("date") || col_name.contains("time") {
             let font_id = egui::FontId::new(font_size - 1.0, egui::FontFamily::Monospace);
             ui.label(
                 egui::RichText::new(s)
                     .font(font_id)
-                    .color(Color32::from_rgb(203, 213, 225)),
+                    .color(palette.text_muted),
             );
         } else {
             ui.label(
                 egui::RichText::new(s)
                     .size(font_size)
-                    .color(Color32::from_rgb(241, 245, 249))
-                    .strong(),
+                    .color(palette.text_primary),
             );
         }
     } else if let Some(n) = val.as_f64() {
@@ -242,7 +394,7 @@ fn render_formatted_cell(
             ui.label(
                 egui::RichText::new(curr)
                     .font(font_id)
-                    .color(Color32::from_rgb(52, 211, 153))
+                    .color(palette.currency_text)
                     .strong(),
             );
         } else if col_lower.contains("pct")
@@ -259,7 +411,7 @@ fn render_formatted_cell(
             ui.label(
                 egui::RichText::new(format!("{:.1}%", pct_val))
                     .font(font_id)
-                    .color(Color32::from_rgb(56, 189, 248)),
+                    .color(palette.pct_text),
             );
         } else if col_lower.contains("quantity")
             || col_lower.contains("inventory")
@@ -270,7 +422,7 @@ fn render_formatted_cell(
             ui.label(
                 egui::RichText::new(format!("{}", n as i64))
                     .font(font_id)
-                    .color(Color32::from_rgb(186, 230, 253))
+                    .color(palette.qty_text)
                     .strong(),
             );
         } else {
@@ -278,19 +430,23 @@ fn render_formatted_cell(
             ui.label(
                 egui::RichText::new(format!("{n}"))
                     .font(font_id)
-                    .color(Color32::from_rgb(226, 232, 240)),
+                    .color(palette.number_text),
             );
         }
     } else if let Some(b) = val.as_bool() {
         let text = if b { "TRUE" } else { "FALSE" };
         let color = if b {
-            Color32::from_rgb(52, 211, 153)
+            palette.currency_text
         } else {
-            Color32::from_rgb(148, 163, 184)
+            palette.text_muted
         };
         ui.label(egui::RichText::new(text).size(font_size).color(color));
     } else {
-        ui.label(egui::RichText::new(val.to_string()).size(font_size));
+        ui.label(
+            egui::RichText::new(val.to_string())
+                .size(font_size)
+                .color(palette.text_primary),
+        );
     }
 }
 
@@ -367,6 +523,8 @@ pub struct DatabaseCraftGui {
     pub show_top_command_bar: bool,
     pub show_status_footer: bool,
     pub recent_databases: Vec<String>,
+    pub selected_cell: Option<(String, usize, String)>,
+    pub show_tools_section: bool,
 }
 
 impl DatabaseCraftGui {
@@ -385,7 +543,7 @@ impl DatabaseCraftGui {
         let mut app = Self {
             store,
             runtime,
-            active_tab: ActiveTab::Tables,
+            active_tab: ActiveTab::Canvas,
             ai_subtab: AiSubTab::Nlq,
             tables,
             selected_table: first_table.clone(),
@@ -457,6 +615,8 @@ impl DatabaseCraftGui {
                 "film.db".to_string(),
                 "kpi.db".to_string(),
             ],
+            selected_cell: None,
+            show_tools_section: false,
         };
 
         app.refresh_notifications();
@@ -724,14 +884,20 @@ impl DatabaseCraftGui {
         if rel_res["success"] == true {
             if let Some(arr) = rel_res["forward_relations"].as_array() {
                 for r in arr {
-                    if let Ok(sr) = serde_json::from_value::<databasecraft_core::canvas::SchemaRelation>(r.clone()) {
+                    if let Ok(sr) = serde_json::from_value::<
+                        databasecraft_core::canvas::SchemaRelation,
+                    >(r.clone())
+                    {
                         forward_relations.push(sr);
                     }
                 }
             }
             if let Some(arr) = rel_res["reverse_relations"].as_array() {
                 for r in arr {
-                    if let Ok(sr) = serde_json::from_value::<databasecraft_core::canvas::SchemaRelation>(r.clone()) {
+                    if let Ok(sr) = serde_json::from_value::<
+                        databasecraft_core::canvas::SchemaRelation,
+                    >(r.clone())
+                    {
                         reverse_relations.push(sr);
                     }
                 }
@@ -763,9 +929,7 @@ impl DatabaseCraftGui {
         if let Some(ref spec) = self.canvas_spec.clone() {
             let start = Instant::now();
             let res = self.runtime.block_on(dispatch(
-                Command::CanvasQuery {
-                    spec: spec.clone(),
-                },
+                Command::CanvasQuery { spec: spec.clone() },
                 &self.store,
             ));
             self.canvas_latency_ms = Some(start.elapsed().as_millis());
@@ -825,7 +989,9 @@ impl DatabaseCraftGui {
                 };
 
                 spec.nested_relations.retain(|existing| {
-                    !existing.relation_name.eq_ignore_ascii_case(&r.relation_name)
+                    !existing
+                        .relation_name
+                        .eq_ignore_ascii_case(&r.relation_name)
                 });
                 spec.nested_relations.push(nested);
             }
@@ -1049,15 +1215,20 @@ impl DatabaseCraftGui {
         if let Some(ref spec) = self.canvas_spec {
             if let Some(c) = spec.columns.iter().find(|c| {
                 c.name.eq_ignore_ascii_case(col_key)
-                    || c.alias.as_deref().unwrap_or("").eq_ignore_ascii_case(col_key)
+                    || c.alias
+                        .as_deref()
+                        .unwrap_or("")
+                        .eq_ignore_ascii_case(col_key)
             }) {
                 if let Some(w) = c.width_px {
                     return w as f32;
                 }
             }
-            if let Some(l) = spec.inlined_lookups.iter().find(|l| {
-                l.alias.eq_ignore_ascii_case(col_key)
-            }) {
+            if let Some(l) = spec
+                .inlined_lookups
+                .iter()
+                .find(|l| l.alias.eq_ignore_ascii_case(col_key))
+            {
                 if let Some(w) = l.width_px {
                     return w as f32;
                 }
@@ -1072,7 +1243,8 @@ impl DatabaseCraftGui {
 
     pub fn set_column_width(&mut self, col_key: &str, width: f32) {
         let clamped = width.clamp(55.0, 800.0);
-        self.canvas_column_widths.insert(col_key.to_string(), clamped);
+        self.canvas_column_widths
+            .insert(col_key.to_string(), clamped);
         if let Some(ref mut spec) = self.canvas_spec {
             spec.set_column_width(col_key, clamped.round() as u32);
         }
@@ -1186,9 +1358,7 @@ impl DatabaseCraftGui {
 
     pub fn ack_notification(&mut self, id: &str) {
         let _ = self.runtime.block_on(dispatch(
-            Command::NotificationAck {
-                id: id.to_string(),
-            },
+            Command::NotificationAck { id: id.to_string() },
             &self.store,
         ));
         self.refresh_notifications();
@@ -1315,7 +1485,7 @@ impl DatabaseCraftGui {
         let emerald_bright = Color32::from_rgb(52, 211, 153);
         let gold = Color32::from_rgb(251, 191, 36);
         let sky_blue = Color32::from_rgb(56, 189, 248);
-        let muted_gray = Color32::from_rgb(156, 163, 175);
+        let muted_gray = Color32::from_rgb(203, 213, 225);
         let light_text = Color32::from_rgb(241, 245, 249);
 
         match dialog {
@@ -1520,53 +1690,65 @@ impl DatabaseCraftGui {
                     .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, -80.0))
                     .show(ctx, |ui| {
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new("Search:").strong().color(emerald_bright));
+                            ui.label(
+                                egui::RichText::new("Search:")
+                                    .strong()
+                                    .color(emerald_bright),
+                            );
                             ui.text_edit_singleline(&mut self.command_palette_query);
                         });
                         ui.separator();
 
                         let q = self.command_palette_query.to_lowercase();
 
-                        egui::ScrollArea::vertical().max_height(340.0).show(ui, |ui| {
-                            let mut matches = 0;
-                            for item in &items {
-                                if q.is_empty()
-                                    || item.label.to_lowercase().contains(&q)
-                                    || item.desc.to_lowercase().contains(&q)
-                                    || item.cat.to_lowercase().contains(&q)
-                                {
-                                    matches += 1;
-                                    ui.group(|ui| {
-                                        ui.horizontal(|ui| {
-                                            if ui
-                                                .button(
-                                                    egui::RichText::new(item.label)
-                                                        .strong()
-                                                        .color(emerald_bright),
-                                                )
-                                                .clicked()
-                                            {
-                                                clicked_action = Some(item.action);
-                                            }
-                                            ui.with_layout(
-                                                egui::Layout::right_to_left(egui::Align::Center),
-                                                |ui| {
-                                                    ui.label(
-                                                        egui::RichText::new(item.cat)
-                                                            .small()
-                                                            .color(muted_gray),
-                                                    );
-                                                },
+                        egui::ScrollArea::vertical()
+                            .max_height(340.0)
+                            .show(ui, |ui| {
+                                let mut matches = 0;
+                                for item in &items {
+                                    if q.is_empty()
+                                        || item.label.to_lowercase().contains(&q)
+                                        || item.desc.to_lowercase().contains(&q)
+                                        || item.cat.to_lowercase().contains(&q)
+                                    {
+                                        matches += 1;
+                                        ui.group(|ui| {
+                                            ui.horizontal(|ui| {
+                                                if ui
+                                                    .button(
+                                                        egui::RichText::new(item.label)
+                                                            .strong()
+                                                            .color(emerald_bright),
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    clicked_action = Some(item.action);
+                                                }
+                                                ui.with_layout(
+                                                    egui::Layout::right_to_left(
+                                                        egui::Align::Center,
+                                                    ),
+                                                    |ui| {
+                                                        ui.label(
+                                                            egui::RichText::new(item.cat)
+                                                                .small()
+                                                                .color(muted_gray),
+                                                        );
+                                                    },
+                                                );
+                                            });
+                                            ui.label(
+                                                egui::RichText::new(item.desc)
+                                                    .small()
+                                                    .color(light_text),
                                             );
                                         });
-                                        ui.label(egui::RichText::new(item.desc).small().color(light_text));
-                                    });
+                                    }
                                 }
-                            }
-                            if matches == 0 {
-                                ui.colored_label(muted_gray, "No matching commands found.");
-                            }
-                        });
+                                if matches == 0 {
+                                    ui.colored_label(muted_gray, "No matching commands found.");
+                                }
+                            });
                     });
 
                 if let Some(act) = clicked_action {
@@ -1695,7 +1877,9 @@ impl DatabaseCraftGui {
                             self.status_message = "Reset column widths to default".to_string();
                         }
                         PaletteActionKind::VacuumDb => {
-                            let _ = self.runtime.block_on(dispatch(Command::Vacuum, &self.store));
+                            let _ = self
+                                .runtime
+                                .block_on(dispatch(Command::Vacuum, &self.store));
                             self.status_message = "Database vacuumed and defragmented".to_string();
                         }
                         PaletteActionKind::RunDiagnostics => {
@@ -1733,59 +1917,137 @@ impl DatabaseCraftGui {
                     .default_width(580.0)
                     .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
                     .show(ctx, |ui| {
-                        egui::ScrollArea::vertical().max_height(460.0).show(ui, |ui| {
-                            egui::Grid::new("shortcuts_grid")
-                                .striped(true)
-                                .min_col_width(140.0)
-                                .show(ui, |ui| {
-                                    ui.label(
-                                        egui::RichText::new("Shortcut")
-                                            .strong()
-                                            .color(emerald_bright),
-                                    );
-                                    ui.label(egui::RichText::new("Action").strong().color(gold));
-                                    ui.label(
-                                        egui::RichText::new("Category")
-                                            .strong()
-                                            .color(muted_gray),
-                                    );
-                                    ui.end_row();
-
-                                    let shortcuts = [
-                                        ("Ctrl/Cmd + K", "Open Command Palette / Fields Palette", "Global / Canvas"),
-                                        ("Ctrl/Cmd + Shift + P", "Open Command Palette", "Global"),
-                                        ("F1 / Ctrl + /", "Open Keyboard Shortcuts Cheat Sheet", "Global"),
-                                        ("Ctrl/Cmd + ,", "Workstation Preferences & Fences", "Global"),
-                                        ("Ctrl/Cmd + Q", "Quit Application Cleanly", "Global"),
-                                        ("F2", "Switch to Relational Canvas (Non-1NF)", "Workspace"),
-                                        ("F3", "Switch to Table Data Grid", "Workspace"),
-                                        ("F4", "Switch to SQL & NLQ Console", "Workspace"),
-                                        ("F5", "Switch to Schema ERD Topology", "Workspace"),
-                                        ("F6", "Switch to RAG & Vector Embeddings", "Workspace"),
-                                        ("F7", "Switch to Query Profiler & EXPLAIN", "Workspace"),
-                                        ("F8", "Switch to Database Doctor & Diagnostics", "Workspace"),
-                                        ("F9", "Switch to Blueprint Constructor", "Workspace"),
-                                        ("F10", "Switch to Cross-Craft Exporter", "Workspace"),
-                                        ("F11", "Switch to CTO Alerts & Watchdog", "Workspace"),
-                                        ("Double-Click Cell", "Edit Cell In-Place (Atomic Write-Back)", "Canvas / Grid"),
-                                        ("Enter / [✓ Commit]", "Commit Cell Edit to SQLite Primary Key", "Canvas / Grid"),
-                                        ("Esc / [✖ Cancel]", "Cancel In-Place Cell Edit", "Canvas / Grid"),
-                                        ("Ctrl/Cmd + Z", "Undo Last Cell Edit Mutation", "Canvas"),
-                                        ("Ctrl/Cmd + Y", "Redo Reverted Cell Edit Mutation", "Canvas"),
-                                        ("Click Column Header", "Tri-State Sort (ASC -> DESC -> None)", "Canvas"),
-                                        ("Drag Column Header", "Interactive Column Reordering", "Canvas"),
-                                        ("Drag Column Divider", "Interactive Column Resizing", "Canvas"),
-                                        ("Double-Click Divider", "Reset Column to Default Density Width", "Canvas"),
-                                    ];
-
-                                    for (sc, action, cat) in &shortcuts {
-                                        ui.label(egui::RichText::new(*sc).strong().color(sky_blue));
-                                        ui.label(egui::RichText::new(*action).color(light_text));
-                                        ui.label(egui::RichText::new(*cat).weak().color(muted_gray));
+                        egui::ScrollArea::vertical()
+                            .max_height(460.0)
+                            .show(ui, |ui| {
+                                egui::Grid::new("shortcuts_grid")
+                                    .striped(true)
+                                    .min_col_width(140.0)
+                                    .show(ui, |ui| {
+                                        ui.label(
+                                            egui::RichText::new("Shortcut")
+                                                .strong()
+                                                .color(emerald_bright),
+                                        );
+                                        ui.label(
+                                            egui::RichText::new("Action").strong().color(gold),
+                                        );
+                                        ui.label(
+                                            egui::RichText::new("Category")
+                                                .strong()
+                                                .color(muted_gray),
+                                        );
                                         ui.end_row();
-                                    }
-                                });
-                        });
+
+                                        let shortcuts = [
+                                            (
+                                                "Ctrl/Cmd + K",
+                                                "Open Command Palette / Fields Palette",
+                                                "Global / Canvas",
+                                            ),
+                                            (
+                                                "Ctrl/Cmd + Shift + P",
+                                                "Open Command Palette",
+                                                "Global",
+                                            ),
+                                            (
+                                                "F1 / Ctrl + /",
+                                                "Open Keyboard Shortcuts Cheat Sheet",
+                                                "Global",
+                                            ),
+                                            (
+                                                "Ctrl/Cmd + ,",
+                                                "Workstation Preferences & Fences",
+                                                "Global",
+                                            ),
+                                            ("Ctrl/Cmd + Q", "Quit Application Cleanly", "Global"),
+                                            (
+                                                "F2",
+                                                "Switch to Relational Canvas (Non-1NF)",
+                                                "Workspace",
+                                            ),
+                                            ("F3", "Switch to Table Data Grid", "Workspace"),
+                                            ("F4", "Switch to SQL & NLQ Console", "Workspace"),
+                                            ("F5", "Switch to Schema ERD Topology", "Workspace"),
+                                            (
+                                                "F6",
+                                                "Switch to RAG & Vector Embeddings",
+                                                "Workspace",
+                                            ),
+                                            (
+                                                "F7",
+                                                "Switch to Query Profiler & EXPLAIN",
+                                                "Workspace",
+                                            ),
+                                            (
+                                                "F8",
+                                                "Switch to Database Doctor & Diagnostics",
+                                                "Workspace",
+                                            ),
+                                            ("F9", "Switch to Blueprint Constructor", "Workspace"),
+                                            ("F10", "Switch to Cross-Craft Exporter", "Workspace"),
+                                            ("F11", "Switch to CTO Alerts & Watchdog", "Workspace"),
+                                            (
+                                                "Double-Click Cell",
+                                                "Edit Cell In-Place (Atomic Write-Back)",
+                                                "Canvas / Grid",
+                                            ),
+                                            (
+                                                "Enter / [✓ Commit]",
+                                                "Commit Cell Edit to SQLite Primary Key",
+                                                "Canvas / Grid",
+                                            ),
+                                            (
+                                                "Esc / [✖ Cancel]",
+                                                "Cancel In-Place Cell Edit",
+                                                "Canvas / Grid",
+                                            ),
+                                            (
+                                                "Ctrl/Cmd + Z",
+                                                "Undo Last Cell Edit Mutation",
+                                                "Canvas",
+                                            ),
+                                            (
+                                                "Ctrl/Cmd + Y",
+                                                "Redo Reverted Cell Edit Mutation",
+                                                "Canvas",
+                                            ),
+                                            (
+                                                "Click Column Header",
+                                                "Tri-State Sort (ASC -> DESC -> None)",
+                                                "Canvas",
+                                            ),
+                                            (
+                                                "Drag Column Header",
+                                                "Interactive Column Reordering",
+                                                "Canvas",
+                                            ),
+                                            (
+                                                "Drag Column Divider",
+                                                "Interactive Column Resizing",
+                                                "Canvas",
+                                            ),
+                                            (
+                                                "Double-Click Divider",
+                                                "Reset Column to Default Density Width",
+                                                "Canvas",
+                                            ),
+                                        ];
+
+                                        for (sc, action, cat) in &shortcuts {
+                                            ui.label(
+                                                egui::RichText::new(*sc).strong().color(sky_blue),
+                                            );
+                                            ui.label(
+                                                egui::RichText::new(*action).color(light_text),
+                                            );
+                                            ui.label(
+                                                egui::RichText::new(*cat).weak().color(muted_gray),
+                                            );
+                                            ui.end_row();
+                                        }
+                                    });
+                            });
                     });
 
                 if !open {
@@ -2009,12 +2271,22 @@ impl DatabaseCraftGui {
 
 impl eframe::App for DatabaseCraftGui {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let mut visuals = egui::Visuals::dark();
+        let ink = Color32::from_rgb(242, 246, 252);
+        visuals.override_text_color = Some(ink);
+        visuals.weak_text_color = Some(Color32::from_rgb(203, 213, 225));
+        visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, ink);
+        visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, ink);
+        visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.5, Color32::WHITE);
+        visuals.widgets.active.fg_stroke = egui::Stroke::new(1.5, Color32::WHITE);
+        ui.ctx().set_visuals(visuals);
+
         // Theme Colors
         let emerald = Color32::from_rgb(16, 139, 126);
         let emerald_bright = Color32::from_rgb(52, 211, 153);
         let sky_blue = Color32::from_rgb(56, 189, 248);
         let amber = Color32::from_rgb(245, 158, 11);
-        let muted_gray = Color32::from_rgb(156, 163, 175);
+        let muted_gray = Color32::from_rgb(203, 213, 225);
 
         // 0. Global Keyboard Shortcuts Handler
         self.handle_global_shortcuts(ui);
@@ -2507,25 +2779,127 @@ impl eframe::App for DatabaseCraftGui {
         // 2. Top Command Bar (Quick Actions Toolbar)
         if self.show_top_command_bar {
             egui::Panel::top("top_bar").show(ui, |ui| {
+                let palette = CanvasPalette::from_ui(ui);
                 ui.horizontal(|ui| {
-                    ui.colored_label(emerald, "◆");
-                    ui.strong(format!("DatabaseCraft v{APP_VERSION}"));
+                    let active_perspective = self
+                        .canvas_root_table
+                        .as_deref()
+                        .or(self.selected_table.as_deref())
+                        .unwrap_or("Perspective");
+                    let tab_label = format!("  {}  ", active_perspective);
+                    if ui
+                        .selectable_label(
+                            self.active_tab == ActiveTab::Canvas,
+                            egui::RichText::new(tab_label)
+                                .color(if self.active_tab == ActiveTab::Canvas {
+                                    palette.accent_primary
+                                } else {
+                                    palette.text_primary
+                                })
+                                .strong(),
+                        )
+                        .clicked()
+                    {
+                        self.active_tab = ActiveTab::Canvas;
+                    }
+                    if ui
+                        .small_button("+")
+                        .on_hover_text("Open SQL & NLQ Console")
+                        .clicked()
+                    {
+                        self.active_tab = ActiveTab::Query;
+                    }
+
                     ui.separator();
-                    ui.colored_label(
-                        emerald_bright,
-                        format!("Port {CONTROL_PORT} [Plane 2 Active]"),
-                    );
+
+                    ui.menu_button("Dataset ▾", |ui| {
+                        if ui.button("Northwind Traders (Customers -> Orders)").clicked() {
+                            let _ = self.runtime.block_on(dispatch(
+                                Command::SeedDemo {
+                                    name: "northwind".to_string(),
+                                },
+                                &self.store,
+                            ));
+                            self.refresh_tables();
+                            self.selected_table = Some("customers".to_string());
+                            self.load_table_data("customers");
+                            self.init_canvas_for_table("customers");
+                            self.sprout_relation("orders", true);
+                            self.active_tab = ActiveTab::Canvas;
+                            self.status_message =
+                                "Seeded Northwind Traders Commercial Dataset: Customers -> Orders (1:N)"
+                                    .to_string();
+                            ui.close();
+                        }
+                        if ui.button("Ecommerce Catalog").clicked() {
+                            let _ = self.runtime.block_on(dispatch(
+                                Command::SeedDemo {
+                                    name: "ecommerce".to_string(),
+                                },
+                                &self.store,
+                            ));
+                            self.refresh_tables();
+                            if let Some(t) = self.tables.first().cloned() {
+                                self.selected_table = Some(t.clone());
+                                self.load_table_data(&t);
+                                self.init_canvas_for_table(&t);
+                            }
+                            self.status_message = "Seeded Ecommerce Catalog".to_string();
+                            ui.close();
+                        }
+                        if ui.button("Film Production Takes").clicked() {
+                            let _ = self.runtime.block_on(dispatch(
+                                Command::SeedDemo {
+                                    name: "film".to_string(),
+                                },
+                                &self.store,
+                            ));
+                            self.refresh_tables();
+                            if let Some(t) = self.tables.first().cloned() {
+                                self.selected_table = Some(t.clone());
+                                self.load_table_data(&t);
+                                self.init_canvas_for_table(&t);
+                            }
+                            self.status_message = "Seeded Film Production Takes".to_string();
+                            ui.close();
+                        }
+                        if ui.button("Executive KPI Metrics").clicked() {
+                            let _ = self.runtime.block_on(dispatch(
+                                Command::SeedDemo {
+                                    name: "kpi".to_string(),
+                                },
+                                &self.store,
+                            ));
+                            self.refresh_tables();
+                            if let Some(t) = self.tables.first().cloned() {
+                                self.selected_table = Some(t.clone());
+                                self.load_table_data(&t);
+                                self.init_canvas_for_table(&t);
+                            }
+                            self.status_message = "Seeded Executive KPI Metrics".to_string();
+                            ui.close();
+                        }
+                        ui.separator();
+                        if ui.button("Vacuum & Defragment").clicked() {
+                            let _ = self
+                                .runtime
+                                .block_on(dispatch(Command::Vacuum, &self.store));
+                            self.status_message = "Database vacuumed and defragmented".to_string();
+                            ui.close();
+                        }
+                    });
+
                     ui.separator();
 
                     let alert_badge_color = if self.unread_alerts_count > 0 {
-                        Color32::from_rgb(239, 68, 68)
+                        Color32::from_rgb(220, 38, 38)
                     } else {
-                        muted_gray
+                        palette.text_muted
                     };
                     let alert_label = if self.unread_alerts_count > 0 {
-                        format!("🚨 {} Alerts", self.unread_alerts_count)
+                        format!("• {} Alerts", self.unread_alerts_count)
                     } else {
-                        "🔔 Alerts".to_string()
+                        "Alerts".to_string()
                     };
                     if ui
                         .button(
@@ -2538,87 +2912,14 @@ impl eframe::App for DatabaseCraftGui {
                         self.active_tab = ActiveTab::Alerts;
                         self.refresh_notifications();
                     }
-                    ui.separator();
-
-                    if ui.button("🌱 Seed: Ecommerce").clicked() {
-                        let _ = self.runtime.block_on(dispatch(
-                            Command::SeedDemo {
-                                name: "ecommerce".to_string(),
-                            },
-                            &self.store,
-                        ));
-                        self.refresh_tables();
-                        if let Some(t) = self.tables.first().cloned() {
-                            self.selected_table = Some(t.clone());
-                            self.load_table_data(&t);
-                        }
-                        self.status_message = "Seeded Ecommerce Catalog".to_string();
-                    }
-
-                    if ui.button("🎬 Seed: Film").clicked() {
-                        let _ = self.runtime.block_on(dispatch(
-                            Command::SeedDemo {
-                                name: "film".to_string(),
-                            },
-                            &self.store,
-                        ));
-                        self.refresh_tables();
-                        if let Some(t) = self.tables.first().cloned() {
-                            self.selected_table = Some(t.clone());
-                            self.load_table_data(&t);
-                        }
-                        self.status_message = "Seeded Film Production Takes".to_string();
-                    }
-
-                    if ui.button("📊 Seed: KPI").clicked() {
-                        let _ = self.runtime.block_on(dispatch(
-                            Command::SeedDemo {
-                                name: "kpi".to_string(),
-                            },
-                            &self.store,
-                        ));
-                        self.refresh_tables();
-                        if let Some(t) = self.tables.first().cloned() {
-                            self.selected_table = Some(t.clone());
-                            self.load_table_data(&t);
-                        }
-                        self.status_message = "Seeded Executive KPI Metrics".to_string();
-                    }
-
-                    if ui
-                        .button(
-                            egui::RichText::new("🚢 Seed: Northwind Traders")
-                                .color(Color32::from_rgb(52, 211, 153))
-                                .strong(),
-                        )
-                        .clicked()
-                    {
-                        let _ = self.runtime.block_on(dispatch(
-                            Command::SeedDemo {
-                                name: "northwind".to_string(),
-                            },
-                            &self.store,
-                        ));
-                        self.refresh_tables();
-                        self.selected_table = Some("customers".to_string());
-                        self.load_table_data("customers");
-                        self.init_canvas_for_table("customers");
-                        self.sprout_relation("orders", true);
-                        self.active_tab = ActiveTab::Canvas;
-                        self.status_message =
-                            "Seeded Northwind Traders Commercial Dataset: Customers -> Orders (1:N)"
-                                .to_string();
-                    }
-
-                    if ui.button("🧹 Vacuum").clicked() {
-                        let _ = self
-                            .runtime
-                            .block_on(dispatch(Command::Vacuum, &self.store));
-                        self.status_message = "Database vacuumed and defragmented".to_string();
-                    }
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         egui::widgets::global_theme_preference_buttons(ui);
+                        ui.separator();
+                        ui.colored_label(
+                            palette.text_muted,
+                            format!("Port {CONTROL_PORT}"),
+                        );
                     });
                 });
             });
@@ -2645,141 +2946,167 @@ impl eframe::App for DatabaseCraftGui {
             });
         }
 
-        // 4. Left Navigation Rail
+        // 4. Left Navigation Rail (Ultorg-style Data Sources & Tables first)
         if self.show_nav_rail {
             egui::Panel::left("nav_rail")
-            .min_size(210.0)
-            .show(ui, |ui| {
-                ui.add_space(6.0);
-                ui.strong("WORKSPACES");
-                ui.add_space(4.0);
-
-                let nav_button = |ui: &mut egui::Ui, active: bool, label: &str| -> bool {
-                    let text = egui::RichText::new(label).color(if active {
-                        emerald_bright
-                    } else {
-                        ui.visuals().text_color()
+                .min_size(205.0)
+                .show(ui, |ui| {
+                    let palette = CanvasPalette::from_ui(ui);
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        ui.strong(format!("DATA SOURCES ({})", self.tables.len()));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.small_button("↻").on_hover_text("Refresh tables").clicked() {
+                                self.refresh_tables();
+                            }
+                        });
                     });
-                    ui.selectable_label(active, text).clicked()
-                };
+                    ui.add_space(2.0);
 
-                if nav_button(ui, self.active_tab == ActiveTab::Tables, "📊 Table Data") {
-                    self.active_tab = ActiveTab::Tables;
-                }
-                if nav_button(
-                    ui,
-                    self.active_tab == ActiveTab::Canvas,
-                    "✨ Relational Canvas",
-                ) {
-                    self.active_tab = ActiveTab::Canvas;
-                    if self.canvas_spec.is_none() {
-                        if let Some(ref t) = self.selected_table.clone() {
-                            self.init_canvas_for_table(t);
-                        }
-                    }
-                }
-                if nav_button(
-                    ui,
-                    self.active_tab == ActiveTab::Query,
-                    "⚡ SQL & NLQ Console",
-                ) {
-                    self.active_tab = ActiveTab::Query;
-                }
-                if nav_button(ui, self.active_tab == ActiveTab::Schema, "🗺️ Schema & ERD") {
-                    self.active_tab = ActiveTab::Schema;
-                }
-                if nav_button(
-                    ui,
-                    self.active_tab == ActiveTab::AiWorkflows,
-                    "🤖 AI Copilot & Workflows",
-                ) {
-                    self.active_tab = ActiveTab::AiWorkflows;
-                }
-                if nav_button(ui, self.active_tab == ActiveTab::Rag, "🎯 RAG & Vectors") {
-                    self.active_tab = ActiveTab::Rag;
-                }
-                if nav_button(
-                    ui,
-                    self.active_tab == ActiveTab::Profiler,
-                    "📈 Data Profiler",
-                ) {
-                    self.active_tab = ActiveTab::Profiler;
-                    self.run_profiler();
-                }
-                if nav_button(
-                    ui,
-                    self.active_tab == ActiveTab::Doctor,
-                    "🩺 Doctor & Repair",
-                ) {
-                    self.active_tab = ActiveTab::Doctor;
-                    self.run_diagnostics();
-                }
-                if nav_button(
-                    ui,
-                    self.active_tab == ActiveTab::Constructor,
-                    "🏗️ Domain Constructor",
-                ) {
-                    self.active_tab = ActiveTab::Constructor;
-                    self.load_blueprints();
-                }
-                if nav_button(
-                    ui,
-                    self.active_tab == ActiveTab::Export,
-                    "📦 Cross-Craft Merge",
-                ) {
-                    self.active_tab = ActiveTab::Export;
-                }
-                let nav_alert_label = if self.unread_alerts_count > 0 {
-                    format!("🚨 Alerts & Watchdog ({})", self.unread_alerts_count)
-                } else {
-                    "🔔 Alerts & Watchdog".to_string()
-                };
-                if nav_button(ui, self.active_tab == ActiveTab::Alerts, &nav_alert_label) {
-                    self.active_tab = ActiveTab::Alerts;
-                    self.refresh_notifications();
-                }
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.table_search)
+                            .hint_text("Filter tables..."),
+                    );
+                    let search_lower = self.table_search.trim().to_lowercase();
+                    ui.add_space(4.0);
 
-                ui.separator();
-                ui.horizontal(|ui| {
-                    ui.strong(format!("TABLES ({})", self.tables.len()));
-                    if ui.small_button("⟳").clicked() {
-                        self.refresh_tables();
-                    }
-                });
-                ui.add_space(2.0);
+                    let mut table_to_select = None;
+                    egui::ScrollArea::vertical()
+                        .max_height(if self.show_tools_section { 260.0 } else { 440.0 })
+                        .show(ui, |ui| {
+                            for t in &self.tables {
+                                if !search_lower.is_empty()
+                                    && !t.to_lowercase().contains(&search_lower)
+                                {
+                                    continue;
+                                }
+                                let is_selected = self.selected_table.as_deref() == Some(t);
+                                let glyph = if t.ends_with("_vec") {
+                                    "◈"
+                                } else if t.ends_with("_fts") {
+                                    "⌕"
+                                } else {
+                                    "▤"
+                                };
+                                let label = format!("{glyph}  {t}");
+                                let text = egui::RichText::new(label).color(if is_selected {
+                                    palette.accent_primary
+                                } else {
+                                    palette.text_primary
+                                });
+                                if ui.selectable_label(is_selected, text).clicked() {
+                                    table_to_select = Some(t.clone());
+                                }
+                            }
+                        });
 
-                ui.text_edit_singleline(&mut self.table_search);
-                let search_lower = self.table_search.trim().to_lowercase();
-
-                let mut table_to_select = None;
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    for t in &self.tables {
-                        if !search_lower.is_empty() && !t.to_lowercase().contains(&search_lower) {
-                            continue;
-                        }
-                        let is_selected = self.selected_table.as_deref() == Some(t);
-                        let icon = if t.ends_with("_vec") {
-                            "🎯"
-                        } else if t.ends_with("_fts") {
-                            "🔍"
-                        } else {
-                            "📋"
-                        };
-                        let label = format!("{icon} {t}");
-                        if ui.selectable_label(is_selected, label).clicked() {
-                            table_to_select = Some(t.clone());
-                        }
-                    }
-                });
-
-                if let Some(selected) = table_to_select {
-                    self.selected_table = Some(selected.clone());
-                    self.load_table_data(&selected);
-                    if self.active_tab == ActiveTab::Canvas {
+                    if let Some(selected) = table_to_select {
+                        self.selected_table = Some(selected.clone());
+                        self.load_table_data(&selected);
                         self.init_canvas_for_table(&selected);
+                        if self.active_tab != ActiveTab::Tables {
+                            self.active_tab = ActiveTab::Canvas;
+                        }
                     }
-                }
-            });
+
+                    ui.separator();
+                    let tools_header = if self.show_tools_section {
+                        "▾ Workspaces & Tools"
+                    } else {
+                        "▸ Workspaces & Tools"
+                    };
+                    if ui
+                        .selectable_label(
+                            self.show_tools_section,
+                            egui::RichText::new(tools_header).strong(),
+                        )
+                        .clicked()
+                    {
+                        self.show_tools_section = !self.show_tools_section;
+                    }
+
+                    if self.show_tools_section {
+                        ui.add_space(2.0);
+                        let nav_button = |ui: &mut egui::Ui, active: bool, label: &str| -> bool {
+                            let text = egui::RichText::new(label).color(if active {
+                                palette.accent_primary
+                            } else {
+                                ui.visuals().text_color()
+                            });
+                            ui.selectable_label(active, text).clicked()
+                        };
+
+                        if nav_button(
+                            ui,
+                            self.active_tab == ActiveTab::Canvas,
+                            "Relational Canvas",
+                        ) {
+                            self.active_tab = ActiveTab::Canvas;
+                            if self.canvas_spec.is_none() {
+                                if let Some(ref t) = self.selected_table.clone() {
+                                    self.init_canvas_for_table(t);
+                                }
+                            }
+                        }
+                        if nav_button(ui, self.active_tab == ActiveTab::Tables, "Table Data") {
+                            self.active_tab = ActiveTab::Tables;
+                        }
+                        if nav_button(
+                            ui,
+                            self.active_tab == ActiveTab::Query,
+                            "SQL & NLQ Console",
+                        ) {
+                            self.active_tab = ActiveTab::Query;
+                        }
+                        if nav_button(ui, self.active_tab == ActiveTab::Schema, "Schema & ERD") {
+                            self.active_tab = ActiveTab::Schema;
+                        }
+                        if nav_button(
+                            ui,
+                            self.active_tab == ActiveTab::AiWorkflows,
+                            "AI Copilot & Workflows",
+                        ) {
+                            self.active_tab = ActiveTab::AiWorkflows;
+                        }
+                        if nav_button(ui, self.active_tab == ActiveTab::Rag, "RAG & Vectors") {
+                            self.active_tab = ActiveTab::Rag;
+                        }
+                        if nav_button(ui, self.active_tab == ActiveTab::Profiler, "Data Profiler")
+                        {
+                            self.active_tab = ActiveTab::Profiler;
+                            self.run_profiler();
+                        }
+                        if nav_button(ui, self.active_tab == ActiveTab::Doctor, "Doctor & Repair")
+                        {
+                            self.active_tab = ActiveTab::Doctor;
+                            self.run_diagnostics();
+                        }
+                        if nav_button(
+                            ui,
+                            self.active_tab == ActiveTab::Constructor,
+                            "Domain Constructor",
+                        ) {
+                            self.active_tab = ActiveTab::Constructor;
+                            self.load_blueprints();
+                        }
+                        if nav_button(
+                            ui,
+                            self.active_tab == ActiveTab::Export,
+                            "Cross-Craft Merge",
+                        ) {
+                            self.active_tab = ActiveTab::Export;
+                        }
+                        let nav_alert_label = if self.unread_alerts_count > 0 {
+                            format!("• Alerts & Watchdog ({})", self.unread_alerts_count)
+                        } else {
+                            "Alerts & Watchdog".to_string()
+                        };
+                        if nav_button(ui, self.active_tab == ActiveTab::Alerts, &nav_alert_label) {
+                            self.active_tab = ActiveTab::Alerts;
+                            self.refresh_notifications();
+                        }
+                    }
+                });
         }
 
         // 4. Central Workspace Area
@@ -2872,6 +3199,7 @@ impl eframe::App for DatabaseCraftGui {
                 }
             }
             ActiveTab::Canvas => {
+                let palette = CanvasPalette::from_ui(ui);
                 let current_table = self
                     .canvas_root_table
                     .clone()
@@ -2880,31 +3208,37 @@ impl eframe::App for DatabaseCraftGui {
 
                 // Top control bar
                 ui.horizontal(|ui| {
-                    ui.colored_label(emerald_bright, "✨ Relational Perspective Canvas");
+                    ui.colored_label(
+                        palette.accent_primary,
+                        egui::RichText::new("Relational Canvas").strong(),
+                    );
                     ui.separator();
-                    ui.label("Root Table:");
-                    ui.colored_label(Color32::WHITE, egui::RichText::new(&current_table).strong());
+                    ui.label("Root:");
+                    ui.colored_label(
+                        palette.text_primary,
+                        egui::RichText::new(&current_table).strong(),
+                    );
 
                     ui.add_space(8.0);
                     ui.label("Filter:");
                     ui.add(egui::TextEdit::singleline(&mut self.filter_text).desired_width(140.0));
 
-                    if ui.button("🎛 Fields & Joins").clicked() {
+                    if ui.button("Fields & Joins").clicked() {
                         self.canvas_field_selector_open = !self.canvas_field_selector_open;
                     }
 
                     if ui
                         .button(if self.canvas_show_sql_drawer {
-                            "⚡ Hide SQL"
+                            "Hide SQL"
                         } else {
-                            "⚡ View SQL"
+                            "View SQL"
                         })
                         .clicked()
                     {
                         self.canvas_show_sql_drawer = !self.canvas_show_sql_drawer;
                     }
 
-                    if ui.button("⟳ Reload").clicked() {
+                    if ui.button("↻ Reload").clicked() {
                         self.run_canvas_query();
                     }
 
@@ -3229,11 +3563,12 @@ impl eframe::App for DatabaseCraftGui {
                             let active_dragged_col = self.canvas_dragged_col.clone();
                             let active_drop_target = self.canvas_drop_target.clone();
 
+                            let mut new_selected_cell: Option<(String, usize, String)> = None;
                             egui::ScrollArea::both().show(ui, |ui| {
                                 // Outer container with hairline borders
                                 egui::Frame::group(ui.style())
-                                    .fill(Color32::from_rgb(17, 19, 23))
-                                    .stroke(egui::Stroke::new(1.0, Color32::from_rgb(38, 42, 50)))
+                                    .fill(palette.bg_canvas)
+                                    .stroke(egui::Stroke::new(1.0, palette.border_hairline))
                                     .inner_margin(0.0)
                                     .show(ui, |ui| {
                                         // 1. TIER 1: Table Ownership Header Band
@@ -3241,44 +3576,39 @@ impl eframe::App for DatabaseCraftGui {
                                             ui.spacing_mut().item_spacing = Vec2::ZERO;
 
                                             // Root Table Header Box
-                                            let root_title = format!(
-                                                "🏛️ {} (Root Entity)",
-                                                current_table.to_uppercase()
-                                            );
+                                            let root_title = current_table.to_uppercase();
                                             egui::Frame::new()
-                                                .fill(Color32::from_rgb(16, 75, 70))
+                                                .fill(palette.tier1_root_bg)
                                                 .stroke(egui::Stroke::new(
                                                     1.0,
-                                                    Color32::from_rgb(13, 148, 136),
+                                                    palette.tier1_root_border,
                                                 ))
                                                 .inner_margin(egui::Margin::symmetric(12, 4))
                                                 .show(ui, |ui| {
                                                     ui.strong(
                                                         egui::RichText::new(root_title)
                                                             .size(font_size + 1.0)
-                                                            .color(Color32::WHITE),
+                                                            .color(palette.tier1_root_text),
                                                     );
                                                 });
 
                                             // Inlined Lookups Band
                                             if !inlined_lookups.is_empty() {
                                                 egui::Frame::new()
-                                                    .fill(Color32::from_rgb(58, 28, 92))
+                                                    .fill(palette.tier1_lookup_bg)
                                                     .stroke(egui::Stroke::new(
                                                         1.0,
-                                                        Color32::from_rgb(168, 85, 247),
+                                                        palette.tier1_lookup_border,
                                                     ))
                                                     .inner_margin(egui::Margin::symmetric(12, 4))
                                                     .show(ui, |ui| {
                                                         ui.strong(
                                                             egui::RichText::new(format!(
-                                                                "🏷️ {} INLINED (Compact)",
+                                                                "{} INLINED",
                                                                 inlined_lookups.len()
                                                             ))
                                                             .size(font_size + 1.0)
-                                                            .color(Color32::from_rgb(
-                                                                233, 213, 255,
-                                                            )),
+                                                            .color(palette.tier1_lookup_text),
                                                         );
                                                     });
                                             }
@@ -3286,23 +3616,21 @@ impl eframe::App for DatabaseCraftGui {
                                             // Nested Subquery Bands
                                             for rel in &nested_rels {
                                                 let sub_title = format!(
-                                                    "↳ {} (1:N Subquery)",
+                                                    "▸ {}",
                                                     rel.relation_name.to_uppercase()
                                                 );
                                                 egui::Frame::new()
-                                                    .fill(Color32::from_rgb(22, 50, 78))
+                                                    .fill(palette.tier1_sub_bg)
                                                     .stroke(egui::Stroke::new(
                                                         1.0,
-                                                        Color32::from_rgb(14, 165, 233),
+                                                        palette.tier1_sub_border,
                                                     ))
                                                     .inner_margin(egui::Margin::symmetric(12, 4))
                                                     .show(ui, |ui| {
                                                         ui.strong(
                                                             egui::RichText::new(sub_title)
                                                                 .size(font_size + 1.0)
-                                                                .color(Color32::from_rgb(
-                                                                    186, 230, 253,
-                                                                )),
+                                                                .color(palette.tier1_sub_text),
                                                         );
                                                     });
                                             }
@@ -3310,19 +3638,17 @@ impl eframe::App for DatabaseCraftGui {
                                             // Rollups Band
                                             if !rollups.is_empty() {
                                                 egui::Frame::new()
-                                                    .fill(Color32::from_rgb(66, 48, 16))
+                                                    .fill(palette.tier1_rollup_bg)
                                                     .stroke(egui::Stroke::new(
                                                         1.0,
-                                                        Color32::from_rgb(245, 158, 11),
+                                                        palette.tier1_rollup_border,
                                                     ))
                                                     .inner_margin(egui::Margin::symmetric(12, 4))
                                                     .show(ui, |ui| {
                                                         ui.strong(
-                                                            egui::RichText::new("∑ INLINE ROLLUPS")
+                                                            egui::RichText::new("∑ ROLLUPS")
                                                                 .size(font_size + 1.0)
-                                                                .color(Color32::from_rgb(
-                                                                    254, 243, 199,
-                                                                )),
+                                                                .color(palette.tier1_rollup_text),
                                                         );
                                                     });
                                             }
@@ -3336,10 +3662,10 @@ impl eframe::App for DatabaseCraftGui {
                                         ui.horizontal(|ui| {
                                             ui.spacing_mut().item_spacing = Vec2::ZERO;
 
-                                            let header_bg = Color32::from_rgb(24, 27, 33);
+                                            let header_bg = palette.bg_header;
                                             let border_stroke = egui::Stroke::new(
                                                 1.0,
-                                                Color32::from_rgb(38, 42, 50),
+                                                palette.border_hairline,
                                             );
 
                                             // Row index column header
@@ -3351,7 +3677,7 @@ impl eframe::App for DatabaseCraftGui {
                                                 .show(ui, |ui| {
                                                     ui.set_width(idx_w);
                                                     ui.set_height(header_h);
-                                                    ui.colored_label(muted_gray, "#");
+                                                    ui.colored_label(palette.text_muted, "#");
                                                 });
 
                                             // Root table column headers with interactive sorting, resizing, and drag-and-drop reordering
@@ -3361,7 +3687,7 @@ impl eframe::App for DatabaseCraftGui {
                                                 let sort_icon = sort_map.get(&col.to_lowercase()).copied().unwrap_or("");
 
                                                 let bg_col = if is_dragged {
-                                                    Color32::from_rgb(30, 48, 64)
+                                                    palette.bg_header_drag
                                                 } else {
                                                     header_bg
                                                 };
@@ -3397,16 +3723,16 @@ impl eframe::App for DatabaseCraftGui {
                                                 ui.painter().rect_stroke(
                                                     header_rect,
                                                     0.0,
-                                                    egui::Stroke::new(1.0, Color32::from_rgb(38, 42, 50)),
+                                                    border_stroke,
                                                     egui::StrokeKind::Inside,
                                                 );
 
                                                 let label_color = if is_dragged {
-                                                    sky_blue
+                                                    palette.accent_selection
                                                 } else {
-                                                    emerald_bright
+                                                    palette.text_header
                                                 };
-                                                let header_label = format!("⋮⋮ {}{sort_icon}", col.to_uppercase());
+                                                let header_label = format!("{}{sort_icon}", col.to_uppercase());
                                                 ui.painter().text(
                                                     header_rect.center(),
                                                     egui::Align2::CENTER_CENTER,
@@ -3426,7 +3752,7 @@ impl eframe::App for DatabaseCraftGui {
                                                         ui.painter().vline(
                                                             drop_x,
                                                             header_rect.y_range(),
-                                                            egui::Stroke::new(3.0, Color32::from_rgb(56, 189, 248)),
+                                                            egui::Stroke::new(3.0, palette.accent_selection),
                                                         );
                                                     }
                                                 }
@@ -3447,11 +3773,11 @@ impl eframe::App for DatabaseCraftGui {
                                                     reset_action = Some(col.clone());
                                                 }
                                                 let divider_col = if resize_resp.dragged() {
-                                                    Color32::from_rgb(56, 189, 248)
+                                                    palette.accent_selection
                                                 } else if resize_resp.hovered() {
-                                                    Color32::from_rgb(16, 185, 129)
+                                                    palette.accent_primary
                                                 } else {
-                                                    Color32::from_rgb(38, 42, 50)
+                                                    palette.border_hairline
                                                 };
                                                 ui.painter().vline(
                                                     resize_rect.center().x,
@@ -3470,7 +3796,7 @@ impl eframe::App for DatabaseCraftGui {
                                                     Vec2::new(col_width, header_h),
                                                     egui::Sense::hover(),
                                                 );
-                                                ui.painter().rect_filled(header_rect, 0.0, Color32::from_rgb(26, 20, 36));
+                                                ui.painter().rect_filled(header_rect, 0.0, palette.tier2_lookup_bg);
                                                 ui.painter().rect_stroke(
                                                     header_rect,
                                                     0.0,
@@ -3480,9 +3806,9 @@ impl eframe::App for DatabaseCraftGui {
                                                 ui.painter().text(
                                                     header_rect.center(),
                                                     egui::Align2::CENTER_CENTER,
-                                                    format!("🏷️ {}", lookup.alias.to_uppercase()),
+                                                    lookup.alias.to_uppercase(),
                                                     egui::FontId::proportional(font_size),
-                                                    Color32::from_rgb(192, 132, 252),
+                                                    palette.tier1_lookup_text,
                                                 );
 
                                                 // Resize handle for inlined lookup
@@ -3501,11 +3827,11 @@ impl eframe::App for DatabaseCraftGui {
                                                     reset_action = Some(lookup.alias.clone());
                                                 }
                                                 let div_col = if resize_resp.dragged() {
-                                                    Color32::from_rgb(192, 132, 252)
+                                                    palette.accent_selection
                                                 } else if resize_resp.hovered() {
-                                                    Color32::from_rgb(168, 85, 247)
+                                                    palette.tier1_lookup_text
                                                 } else {
-                                                    Color32::from_rgb(38, 42, 50)
+                                                    palette.border_hairline
                                                 };
                                                 ui.painter().vline(
                                                     resize_rect.center().x,
@@ -3523,14 +3849,14 @@ impl eframe::App for DatabaseCraftGui {
                                                     Vec2::new(38.0, header_h),
                                                     egui::Sense::hover(),
                                                 );
-                                                ui.painter().rect_filled(sub_idx_rect, 0.0, Color32::from_rgb(20, 24, 32));
+                                                ui.painter().rect_filled(sub_idx_rect, 0.0, palette.tier2_sub_bg);
                                                 ui.painter().rect_stroke(sub_idx_rect, 0.0, border_stroke, egui::StrokeKind::Inside);
                                                 ui.painter().text(
                                                     sub_idx_rect.center(),
                                                     egui::Align2::CENTER_CENTER,
-                                                    "SUB#",
+                                                    "#",
                                                     egui::FontId::proportional(font_size),
-                                                    sky_blue,
+                                                    palette.text_muted,
                                                 );
 
                                                 for c in &rel.columns {
@@ -3545,14 +3871,14 @@ impl eframe::App for DatabaseCraftGui {
                                                         Vec2::new(col_width, header_h),
                                                         egui::Sense::hover(),
                                                     );
-                                                    ui.painter().rect_filled(header_rect, 0.0, Color32::from_rgb(20, 24, 32));
+                                                    ui.painter().rect_filled(header_rect, 0.0, palette.tier2_sub_bg);
                                                     ui.painter().rect_stroke(header_rect, 0.0, border_stroke, egui::StrokeKind::Inside);
                                                     ui.painter().text(
                                                         header_rect.center(),
                                                         egui::Align2::CENTER_CENTER,
                                                         col_name.to_uppercase(),
                                                         egui::FontId::proportional(font_size),
-                                                        sky_blue,
+                                                        palette.tier1_sub_text,
                                                     );
 
                                                     // Resize handle
@@ -3571,11 +3897,11 @@ impl eframe::App for DatabaseCraftGui {
                                                         reset_action = Some(sub_key.clone());
                                                     }
                                                     let div_col = if resize_resp.dragged() {
-                                                        sky_blue
+                                                        palette.accent_selection
                                                     } else if resize_resp.hovered() {
-                                                        Color32::from_rgb(14, 165, 233)
+                                                        palette.tier1_sub_text
                                                     } else {
-                                                        Color32::from_rgb(38, 42, 50)
+                                                        palette.border_hairline
                                                     };
                                                     ui.painter().vline(
                                                         resize_rect.center().x,
@@ -3595,14 +3921,14 @@ impl eframe::App for DatabaseCraftGui {
                                                     Vec2::new(col_width, header_h),
                                                     egui::Sense::hover(),
                                                 );
-                                                ui.painter().rect_filled(header_rect, 0.0, Color32::from_rgb(28, 25, 20));
+                                                ui.painter().rect_filled(header_rect, 0.0, palette.tier2_rollup_bg);
                                                 ui.painter().rect_stroke(header_rect, 0.0, border_stroke, egui::StrokeKind::Inside);
                                                 ui.painter().text(
                                                     header_rect.center(),
                                                     egui::Align2::CENTER_CENTER,
                                                     format!("∑ {}", agg.alias.to_uppercase()),
                                                     egui::FontId::proportional(font_size),
-                                                    amber,
+                                                    palette.tier1_rollup_text,
                                                 );
 
                                                 // Resize handle
@@ -3621,11 +3947,11 @@ impl eframe::App for DatabaseCraftGui {
                                                     reset_action = Some(agg.alias.clone());
                                                 }
                                                 let div_col = if resize_resp.dragged() {
-                                                    amber
+                                                    palette.accent_selection
                                                 } else if resize_resp.hovered() {
-                                                    Color32::from_rgb(245, 158, 11)
+                                                    palette.tier1_rollup_text
                                                 } else {
-                                                    Color32::from_rgb(38, 42, 50)
+                                                    palette.border_hairline
                                                 };
                                                 ui.painter().vline(
                                                     resize_rect.center().x,
@@ -3670,18 +3996,22 @@ impl eframe::App for DatabaseCraftGui {
                                         {
                                             if let Some(obj) = record.as_object() {
                                                 let row_bg = if row_idx % 2 == 0 {
-                                                    Color32::from_rgb(18, 20, 24)
+                                                    palette.bg_canvas
                                                 } else {
-                                                    Color32::from_rgb(24, 27, 33)
+                                                    palette.bg_zebra
                                                 };
                                                 let border_stroke = egui::Stroke::new(
                                                     1.0,
-                                                    Color32::from_rgb(38, 42, 50),
+                                                    palette.border_hairline,
+                                                );
+                                                let parent_sep_stroke = egui::Stroke::new(
+                                                    1.0,
+                                                    palette.border_parent_sep,
                                                 );
 
                                                 egui::Frame::new()
                                                     .fill(row_bg)
-                                                    .stroke(border_stroke)
+                                                    .stroke(parent_sep_stroke)
                                                     .show(ui, |ui| {
                                                         ui.horizontal(|ui| {
                                                             ui.spacing_mut().item_spacing =
@@ -3689,8 +4019,9 @@ impl eframe::App for DatabaseCraftGui {
                                                             ui.spacing_mut().interact_size.y =
                                                                 min_row_h;
 
-                                                            // Row number
+                                                            // Row number gutter
                                                             egui::Frame::new()
+                                                                .fill(palette.bg_header)
                                                                 .stroke(border_stroke)
                                                                 .inner_margin(
                                                                     egui::Margin::symmetric(
@@ -3700,12 +4031,12 @@ impl eframe::App for DatabaseCraftGui {
                                                                 .show(ui, |ui| {
                                                                     ui.set_width(38.0);
                                                                     ui.colored_label(
-                                                                        emerald_bright,
-                                                                        format!("#{}", row_idx + 1),
+                                                                        palette.text_muted,
+                                                                        format!("{}", row_idx + 1),
                                                                     );
                                                                 });
 
-                                                            // Root columns with interactive cell editing
+                                                            // Root columns with interactive cell editing & selection ring
                                                             let row_pk_val = obj
                                                                 .get(&pk_col)
                                                                 .cloned()
@@ -3720,6 +4051,15 @@ impl eframe::App for DatabaseCraftGui {
                                                                     .get(col)
                                                                     .unwrap_or(&Value::Null);
 
+                                                                let is_selected_cell = self
+                                                                    .selected_cell
+                                                                    .as_ref()
+                                                                    .is_some_and(|(t, r, c)| {
+                                                                        t == &current_table
+                                                                            && *r == row_idx
+                                                                            && c == col
+                                                                    });
+
                                                                 let is_editing = self
                                                                     .active_cell_edit
                                                                     .as_ref()
@@ -3730,8 +4070,14 @@ impl eframe::App for DatabaseCraftGui {
                                                                             && e.col == *col
                                                                     });
 
+                                                                let cell_stroke = if is_selected_cell || is_editing {
+                                                                    egui::Stroke::new(2.0, palette.accent_selection)
+                                                                } else {
+                                                                    border_stroke
+                                                                };
+
                                                                 egui::Frame::new()
-                                                                    .stroke(border_stroke)
+                                                                    .stroke(cell_stroke)
                                                                     .inner_margin(
                                                                         egui::Margin::symmetric(
                                                                             pad.0, pad.1,
@@ -3761,16 +4107,24 @@ impl eframe::App for DatabaseCraftGui {
                                                                                 if ui.button("✓").clicked() {
                                                                                     commit_cell = true;
                                                                                 }
-                                                                                if ui.button("✖").clicked() {
+                                                                                if ui.button("×").clicked() {
                                                                                     cancel_cell = true;
                                                                                 }
                                                                             });
                                                                         } else {
                                                                             let cell_resp = ui.scope(|ui| {
                                                                                 render_formatted_cell(
-                                                                                    ui, col, val, density,
+                                                                                    ui, col, val, density, &palette,
                                                                                 );
                                                                             }).response;
+
+                                                                            if cell_resp.clicked() {
+                                                                                new_selected_cell = Some((
+                                                                                    current_table.clone(),
+                                                                                    row_idx,
+                                                                                    col.clone(),
+                                                                                ));
+                                                                            }
 
                                                                             if cell_resp.double_clicked() {
                                                                                 let val_str = match val {
@@ -3811,6 +4165,7 @@ impl eframe::App for DatabaseCraftGui {
                                                                             &lookup.alias,
                                                                             val,
                                                                             density,
+                                                                            &palette,
                                                                         );
                                                                     });
                                                             }
@@ -3833,8 +4188,8 @@ impl eframe::App for DatabaseCraftGui {
                                                                             )
                                                                             .show(ui, |ui| {
                                                                                 ui.colored_label(
-                                                                                    muted_gray,
-                                                                                    "— (empty) —",
+                                                                                    palette.text_muted,
+                                                                                    "(empty)",
                                                                                 );
                                                                             });
                                                                     } else {
@@ -3851,13 +4206,9 @@ impl eframe::App for DatabaseCraftGui {
                                                                                     % 2
                                                                                     == 0
                                                                                 {
-                                                                                    Color32::from_rgb(
-                                                                                        20, 23, 29,
-                                                                                    )
+                                                                                    palette.bg_sub_even
                                                                                 } else {
-                                                                                    Color32::from_rgb(
-                                                                                        26, 30, 38,
-                                                                                    )
+                                                                                    palette.bg_sub_odd
                                                                                 };
                                                                                 egui::Frame::new()
                                                                                     .fill(
@@ -3877,7 +4228,7 @@ impl eframe::App for DatabaseCraftGui {
                                                                                         .inner_margin(egui::Margin::symmetric(6, pad.1))
                                                                                         .show(ui, |ui| {
                                                                                             ui.set_width(38.0);
-                                                                                            ui.weak(format!("{}.", c_idx + 1));
+                                                                                            ui.colored_label(palette.text_muted, format!("{}.", c_idx + 1));
                                                                                         });
 
                                                                                     if let Some(c_obj) = c_row.as_object() {
@@ -3895,7 +4246,7 @@ impl eframe::App for DatabaseCraftGui {
                                                                                                 .inner_margin(egui::Margin::symmetric(pad.0, pad.1))
                                                                                                 .show(ui, |ui| {
                                                                                                     ui.set_width(cell_total_w - (pad.0 as f32 * 2.0));
-                                                                                                    render_formatted_cell(ui, &c.name, val, density);
+                                                                                                    render_formatted_cell(ui, &c.name, val, density, &palette);
                                                                                                 });
                                                                                         }
                                                                                     }
@@ -3915,7 +4266,7 @@ impl eframe::App for DatabaseCraftGui {
                                                                         )
                                                                         .show(ui, |ui| {
                                                                             ui.colored_label(
-                                                                                muted_gray, "—",
+                                                                                palette.text_muted, "null",
                                                                             );
                                                                         });
                                                                 }
@@ -3993,6 +4344,9 @@ impl eframe::App for DatabaseCraftGui {
                                     });
                             });
 
+                            if let Some(cell) = new_selected_cell {
+                                self.selected_cell = Some(cell);
+                            }
                             if commit_cell {
                                 self.commit_cell_edit();
                             }

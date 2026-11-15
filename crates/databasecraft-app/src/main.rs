@@ -224,7 +224,10 @@ fn main() {
     let res = eframe::run_native(
         "DatabaseCraft",
         native_options,
-        Box::new(move |_cc| Ok(Box::new(gui::DatabaseCraftGui::new(store_arc, rt_arc)))),
+        Box::new(move |cc| {
+            cc.egui_ctx.set_visuals(egui::Visuals::light());
+            Ok(Box::new(gui::DatabaseCraftGui::new(store_arc, rt_arc)))
+        }),
     );
     if let Err(e) = res {
         eprintln!("[databasecraft] eframe runtime error: {e}");
@@ -371,7 +374,8 @@ mod tests {
         ));
 
         // Create table employees (quiescent archetype)
-        let create_emp = "CREATE TABLE IF NOT EXISTS employees (id INTEGER PRIMARY KEY, name TEXT);";
+        let create_emp =
+            "CREATE TABLE IF NOT EXISTS employees (id INTEGER PRIMARY KEY, name TEXT);";
         rt.block_on(dispatch(
             Command::Query {
                 sql: create_emp.to_string(),
@@ -380,15 +384,13 @@ mod tests {
         ));
 
         let mut gui = gui::DatabaseCraftGui::new(store.clone(), rt.clone());
-        assert_eq!(gui.active_tab, gui::ActiveTab::Tables);
+        assert_eq!(gui.active_tab, gui::ActiveTab::Canvas);
+        assert!(gui.selected_cell.is_none());
 
         // Simulate high churn on quiescent employees table (> 10 mut/min)
         for i in 0..15 {
             let insert_sql = format!("INSERT INTO employees (name) VALUES ('Test-{i}');");
-            rt.block_on(dispatch(
-                Command::Query { sql: insert_sql },
-                &store,
-            ));
+            rt.block_on(dispatch(Command::Query { sql: insert_sql }, &store));
             rt.block_on(dispatch(
                 Command::WatchdogRecordMutation {
                     table: "employees".to_string(),
@@ -525,7 +527,8 @@ mod tests {
     }
 
     #[test]
-    fn test_canvas_interactive_column_resizing_and_reordering() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_canvas_interactive_column_resizing_and_reordering(
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let store = Arc::new(DatabaseStore::open_in_memory()?);
         let rt = Arc::new(Runtime::new()?);
 

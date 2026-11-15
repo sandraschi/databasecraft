@@ -29,7 +29,7 @@ use serde_json::{json, Value};
 /// Standard registered control port for DatabaseCraft in the ArtCraft family.
 pub const CONTROL_PORT: u16 = 14113;
 pub const APP_NAME: &str = "databasecraft";
-pub const APP_VERSION: &str = "0.5.0";
+pub const APP_VERSION: &str = "0.7.0";
 
 /// Unique string IDs exposed over MCP `tools/list` and the CLI.
 pub const CMD_STATUS: &str = "status";
@@ -845,8 +845,7 @@ fn execute_dispatch(cmd: Command, store: &DatabaseStore) -> Result<Value, Databa
         }
         Command::WatchdogCheck => {
             let alerts = notifications::global_notification_bus().evaluate_watchdog(store)?;
-            let unack_count =
-                notifications::global_notification_bus().unacknowledged_alert_count();
+            let unack_count = notifications::global_notification_bus().unacknowledged_alert_count();
             Ok(json!({
                 "success": true,
                 "new_alerts_emitted": alerts.len(),
