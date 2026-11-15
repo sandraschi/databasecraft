@@ -897,4 +897,46 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_canvas_phase_d_import_and_pagination() -> Result<(), Box<dyn std::error::Error>> {
+        let store = Arc::new(DatabaseStore::open_in_memory()?);
+        let rt = Arc::new(tokio::runtime::Runtime::new()?);
+
+        // 1. Import CSV with inferred types
+        let csv = "sku,title,price,stock\nA-1,Widget One,19.5,10\nA-2,Widget Two,25.0,5\nA-3,Widget Three,30.0,8\n";
+        let csv_count = store.import_csv_str("widgets", csv)?;
+        assert_eq!(csv_count, 3);
+
+        // 2. Import JSON array of objects
+        let json = r#"[{"name":"Alpha","score":95},{"name":"Beta","score":88}]"#;
+        let json_count = store.import_json_str("metrics_json", json)?;
+        assert_eq!(json_count, 2);
+
+        // 3. Test virtualized pagination in Canvas
+        let mut gui = gui::DatabaseCraftGui::new(store.clone(), rt.clone());
+        gui.init_canvas_for_table("widgets");
+        gui.set_canvas_page_size(2);
+        let page1_len = gui
+            .canvas_result
+            .as_ref()
+            .and_then(|r| r["result"]["data"].as_array())
+            .map(|a| a.len())
+            .unwrap_or(0);
+        assert_eq!(page1_len, 2);
+
+        gui.next_canvas_page();
+        let page2_len = gui
+            .canvas_result
+            .as_ref()
+            .and_then(|r| r["result"]["data"].as_array())
+            .map(|a| a.len())
+            .unwrap_or(0);
+        assert_eq!(page2_len, 1);
+
+        gui.prev_canvas_page();
+        assert_eq!(gui.canvas_spec.as_ref().and_then(|s| s.offset), Some(0));
+
+        Ok(())
+    }
 }

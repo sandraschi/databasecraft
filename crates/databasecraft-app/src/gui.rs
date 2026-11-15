@@ -540,6 +540,11 @@ pub struct DatabaseCraftGui {
     pub active_perspective_name: Option<String>,
     pub formula_draft_alias: String,
     pub formula_draft_expr: String,
+    // Phase D: External CSV/JSON Import
+    pub import_dialog_open: bool,
+    pub import_file_path: String,
+    pub import_table_name: String,
+    pub import_status: Option<String>,
 }
 
 impl DatabaseCraftGui {
@@ -644,6 +649,10 @@ impl DatabaseCraftGui {
             active_perspective_name: None,
             formula_draft_alias: "computed_val".to_string(),
             formula_draft_expr: String::new(),
+            import_dialog_open: false,
+            import_file_path: String::new(),
+            import_table_name: "imported_data".to_string(),
+            import_status: None,
         };
 
         app.refresh_notifications();
@@ -1364,6 +1373,71 @@ impl DatabaseCraftGui {
             }
         }
         self.run_canvas_query();
+    }
+
+    pub fn set_canvas_page_size(&mut self, page_size: usize) {
+        if let Some(ref mut spec) = self.canvas_spec {
+            spec.limit = Some(page_size.max(1));
+            spec.offset = Some(0);
+        }
+        self.run_canvas_query();
+    }
+
+    pub fn next_canvas_page(&mut self) {
+        if let Some(ref mut spec) = self.canvas_spec {
+            let limit = spec.limit.unwrap_or(50).max(1);
+            let cur_offset = spec.offset.unwrap_or(0);
+            spec.limit = Some(limit);
+            spec.offset = Some(cur_offset + limit);
+        }
+        self.run_canvas_query();
+    }
+
+    pub fn prev_canvas_page(&mut self) {
+        if let Some(ref mut spec) = self.canvas_spec {
+            let limit = spec.limit.unwrap_or(50).max(1);
+            let cur_offset = spec.offset.unwrap_or(0);
+            spec.limit = Some(limit);
+            spec.offset = Some(cur_offset.saturating_sub(limit));
+        }
+        self.run_canvas_query();
+    }
+
+    pub fn import_local_file(&mut self, path_str: &str, table_name: &str) {
+        let trimmed_path = path_str.trim();
+        let trimmed_table = table_name.trim();
+        if trimmed_path.is_empty() || trimmed_table.is_empty() {
+            self.import_status = Some("Provide both file path and target table name.".to_string());
+            return;
+        }
+        let content = match std::fs::read_to_string(trimmed_path) {
+            Ok(c) => c,
+            Err(e) => {
+                self.import_status = Some(format!("Failed to read file: {e}"));
+                return;
+            }
+        };
+        let is_json = trimmed_path.to_lowercase().ends_with(".json");
+        let res = if is_json {
+            self.store.import_json_str(trimmed_table, &content)
+        } else {
+            self.store.import_csv_str(trimmed_table, &content)
+        };
+        match res {
+            Ok(count) => {
+                self.refresh_tables();
+                self.selected_table = Some(trimmed_table.to_string());
+                self.load_table_data(trimmed_table);
+                self.init_canvas_for_table(trimmed_table);
+                self.active_tab = ActiveTab::Canvas;
+                self.import_status = Some(format!("Imported {count} rows into '{trimmed_table}'."));
+                self.status_message = format!("Imported {count} rows into '{trimmed_table}'");
+                self.import_dialog_open = false;
+            }
+            Err(e) => {
+                self.import_status = Some(format!("Import error: {e}"));
+            }
+        }
     }
 
     #[cfg(test)]
@@ -3110,6 +3184,10 @@ impl eframe::App for DatabaseCraftGui {
                             ui.close();
                         }
                         ui.separator();
+                        if ui.button("Import CSV / JSON...").clicked() {
+                            self.import_dialog_open = true;
+                            ui.close();
+                        }
                         if ui.button("Vacuum & Defragment").clicked() {
                             let _ = self
                                 .runtime
@@ -3904,6 +3982,8 @@ impl eframe::App for DatabaseCraftGui {
                                 .map(|s| s.aggregations.len())
                                 .unwrap_or(0);
 
+                            let mut page_action: Option<i8> = None;
+                            let mut page_size_action: Option<usize> = None;
                             ui.horizontal(|ui| {
                                 ui.colored_label(
                                     emerald_bright,
@@ -3917,6 +3997,57 @@ impl eframe::App for DatabaseCraftGui {
                                 if let Some(lat) = self.canvas_latency_ms {
                                     ui.colored_label(muted_gray, format!("• {lat}ms"));
                                 }
+
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        let cur_limit = self
+                                            .canvas_spec
+                                            .as_ref()
+                                            .and_then(|s| s.limit)
+                                            .unwrap_or(50)
+                                            .max(1);
+                                        let cur_offset = self
+                                            .canvas_spec
+                                            .as_ref()
+                                            .and_then(|s| s.offset)
+                                            .unwrap_or(0);
+                                        let cur_page = (cur_offset / cur_limit) + 1;
+
+                                        if ui
+                                            .add_enabled(
+                                                filtered_records.len() >= cur_limit,
+                                                egui::Button::new("Next ›").small(),
+                                            )
+                                            .clicked()
+                                        {
+                                            page_action = Some(1);
+                                        }
+                                        ui.colored_label(
+                                            muted_gray,
+                                            format!("Page {cur_page}"),
+                                        );
+                                        if ui
+                                            .add_enabled(
+                                                cur_offset > 0,
+                                                egui::Button::new("‹ Prev").small(),
+                                            )
+                                            .clicked()
+                                        {
+                                            page_action = Some(-1);
+                                        }
+                                        ui.separator();
+                                        for sz in [250usize, 100, 50, 25] {
+                                            if ui
+                                                .selectable_label(cur_limit == sz, format!("{sz}"))
+                                                .clicked()
+                                            {
+                                                page_size_action = Some(sz);
+                                            }
+                                        }
+                                        ui.colored_label(muted_gray, "Rows:");
+                                    },
+                                );
                             });
 
                             ui.add_space(2.0);
@@ -5013,6 +5144,14 @@ impl eframe::App for DatabaseCraftGui {
                             }
                             if let Some(rel) = header_inline_action {
                                 self.inline_foreign_key(&rel);
+                            }
+                            if let Some(sz) = page_size_action {
+                                self.set_canvas_page_size(sz);
+                            }
+                            match page_action {
+                                Some(1) => self.next_canvas_page(),
+                                Some(-1) => self.prev_canvas_page(),
+                                _ => {}
                             }
                         }
                     } else {
@@ -6257,6 +6396,50 @@ impl eframe::App for DatabaseCraftGui {
         });
 
         // 5. Render Active Help Suite & Preference Dialogs
+        if self.import_dialog_open {
+            let mut open = true;
+            egui::Window::new("Import CSV / JSON Dataset")
+                .open(&mut open)
+                .default_width(420.0)
+                .show(ui.ctx(), |ui| {
+                    ui.label("Import a local .csv or .json (array of objects) file into a new SQLite table:");
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        ui.label("File Path:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.import_file_path)
+                                .hint_text("C:\\path\\to\\data.csv")
+                                .desired_width(290.0),
+                        );
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Table Name:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.import_table_name)
+                                .desired_width(200.0),
+                        );
+                    });
+                    if let Some(ref st) = self.import_status {
+                        ui.add_space(4.0);
+                        ui.colored_label(Color32::from_rgb(37, 99, 235), st);
+                    }
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("Import").clicked() {
+                            let p = self.import_file_path.clone();
+                            let t = self.import_table_name.clone();
+                            self.import_local_file(&p, &t);
+                        }
+                        if ui.button("Close").clicked() {
+                            self.import_dialog_open = false;
+                        }
+                    });
+                });
+            if !open {
+                self.import_dialog_open = false;
+            }
+        }
+
         self.render_dialogs(ui.ctx());
     }
 }

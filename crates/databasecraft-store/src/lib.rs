@@ -361,6 +361,296 @@ impl DatabaseStore {
         Ok(())
     }
 
+    fn validate_ident(name: &str) -> Result<(), StoreError> {
+        if name.is_empty()
+            || !name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
+            return Err(StoreError::InvalidInput(format!(
+                "identifier '{name}' must be non-empty alphanumeric/underscore"
+            )));
+        }
+        Ok(())
+    }
+
+    fn sanitize_col_name(raw: &str, idx: usize) -> String {
+        let mut out: String = raw
+            .trim()
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+            .collect();
+        while out.starts_with('_') {
+            out.remove(0);
+        }
+        if out.is_empty() {
+            return format!("col_{idx}");
+        }
+        if out.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+            out = format!("col_{out}");
+        }
+        out
+    }
+
+    fn parse_csv_line(line: &str) -> Vec<String> {
+        let mut fields = Vec::new();
+        let mut cur = String::new();
+        let mut in_quotes = false;
+        let mut chars = line.chars().peekable();
+        while let Some(c) = chars.next() {
+            if in_quotes {
+                if c == '"' {
+                    if chars.peek() == Some(&'"') {
+                        chars.next();
+                        cur.push('"');
+                    } else {
+                        in_quotes = false;
+                    }
+                } else {
+                    cur.push(c);
+                }
+            } else if c == '"' {
+                in_quotes = true;
+            } else if c == ',' {
+                fields.push(cur.trim().to_string());
+                cur.clear();
+            } else {
+                cur.push(c);
+            }
+        }
+        fields.push(cur.trim().to_string());
+        fields
+    }
+
+    fn infer_sqlite_type(samples: &[&str]) -> &'static str {
+        let non_empty: Vec<&str> = samples.iter().copied().filter(|s| !s.is_empty()).collect();
+        if non_empty.is_empty() {
+            return "TEXT";
+        }
+        if non_empty.iter().all(|s| s.parse::<i64>().is_ok()) {
+            return "INTEGER";
+        }
+        if non_empty.iter().all(|s| s.parse::<f64>().is_ok()) {
+            return "REAL";
+        }
+        "TEXT"
+    }
+
+    /// Import a CSV string into a SQLite table, inferring column types and inserting in a transaction.
+    pub fn import_csv_str(&self, table_name: &str, csv_content: &str) -> Result<usize, StoreError> {
+        Self::validate_ident(table_name)?;
+        let lines: Vec<&str> = csv_content
+            .lines()
+            .map(|l| l.trim_end_matches('\r'))
+            .filter(|l| !l.trim().is_empty())
+            .collect();
+        if lines.is_empty() {
+            return Err(StoreError::InvalidInput("CSV content is empty".to_string()));
+        }
+
+        let raw_headers = Self::parse_csv_line(lines[0]);
+        if raw_headers.is_empty() {
+            return Err(StoreError::InvalidInput("CSV header row is empty".to_string()));
+        }
+        let col_names: Vec<String> = raw_headers
+            .iter()
+            .enumerate()
+            .map(|(i, h)| Self::sanitize_col_name(h, i))
+            .collect();
+
+        let data_rows: Vec<Vec<String>> =
+            lines[1..].iter().map(|l| Self::parse_csv_line(l)).collect();
+
+        let mut col_defs = Vec::new();
+        for (idx, col) in col_names.iter().enumerate() {
+            let samples: Vec<&str> = data_rows
+                .iter()
+                .filter_map(|r| r.get(idx).map(|s| s.as_str()))
+                .collect();
+            let ty = Self::infer_sqlite_type(&samples);
+            col_defs.push(format!("\"{col}\" {ty}"));
+        }
+
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Lock(e.to_string()))?;
+
+        let has_id = col_names.iter().any(|c| c.eq_ignore_ascii_case("id"));
+        let create_sql = if has_id {
+            format!(
+                "CREATE TABLE IF NOT EXISTS \"{table_name}\" ({});",
+                col_defs.join(", ")
+            )
+        } else {
+            format!(
+                "CREATE TABLE IF NOT EXISTS \"{table_name}\" (id INTEGER PRIMARY KEY AUTOINCREMENT, {});",
+                col_defs.join(", ")
+            )
+        };
+        conn.execute(&create_sql, [])?;
+
+        let quoted_cols: Vec<String> = col_names.iter().map(|c| format!("\"{c}\"")).collect();
+        let placeholders: Vec<String> = (1..=col_names.len()).map(|i| format!("?{i}")).collect();
+        let insert_sql = format!(
+            "INSERT INTO \"{table_name}\" ({}) VALUES ({});",
+            quoted_cols.join(", "),
+            placeholders.join(", ")
+        );
+
+        conn.execute("BEGIN IMMEDIATE;", [])?;
+        let mut inserted = 0usize;
+        for row in &data_rows {
+            let mut params: Vec<rusqlite::types::Value> = Vec::with_capacity(col_names.len());
+            for idx in 0..col_names.len() {
+                let raw = row.get(idx).map(|s| s.as_str()).unwrap_or("");
+                if raw.is_empty() {
+                    params.push(rusqlite::types::Value::Null);
+                } else if let Ok(n) = raw.parse::<i64>() {
+                    params.push(rusqlite::types::Value::Integer(n));
+                } else if let Ok(f) = raw.parse::<f64>() {
+                    params.push(rusqlite::types::Value::Real(f));
+                } else {
+                    params.push(rusqlite::types::Value::Text(raw.to_string()));
+                }
+            }
+            conn.execute(&insert_sql, rusqlite::params_from_iter(params.iter()))?;
+            inserted += 1;
+        }
+        conn.execute("COMMIT;", [])?;
+
+        Ok(inserted)
+    }
+
+    /// Import a JSON array of objects into a SQLite table in a single transaction.
+    pub fn import_json_str(&self, table_name: &str, json_content: &str) -> Result<usize, StoreError> {
+        Self::validate_ident(table_name)?;
+        let parsed: serde_json::Value = serde_json::from_str(json_content)
+            .map_err(|e| StoreError::InvalidInput(format!("invalid JSON: {e}")))?;
+        let arr = parsed.as_array().ok_or_else(|| {
+            StoreError::InvalidInput("JSON root must be an array of objects".to_string())
+        })?;
+        if arr.is_empty() {
+            return Err(StoreError::InvalidInput("JSON array is empty".to_string()));
+        }
+
+        let mut raw_keys: Vec<String> = Vec::new();
+        for item in arr {
+            if let Some(obj) = item.as_object() {
+                for k in obj.keys() {
+                    if !raw_keys.contains(k) {
+                        raw_keys.push(k.clone());
+                    }
+                }
+            }
+        }
+        if raw_keys.is_empty() {
+            return Err(StoreError::InvalidInput(
+                "JSON array contains no object keys".to_string(),
+            ));
+        }
+
+        let col_names: Vec<String> = raw_keys
+            .iter()
+            .enumerate()
+            .map(|(i, k)| Self::sanitize_col_name(k, i))
+            .collect();
+
+        let col_defs: Vec<String> = col_names
+            .iter()
+            .enumerate()
+            .map(|(idx, col)| {
+                let raw_key = &raw_keys[idx];
+                let mut is_int = true;
+                let mut is_real = true;
+                let mut has_val = false;
+                for item in arr {
+                    if let Some(v) = item.get(raw_key) {
+                        if v.is_null() {
+                            continue;
+                        }
+                        has_val = true;
+                        if !v.is_i64() && !v.is_u64() {
+                            is_int = false;
+                        }
+                        if !v.is_number() {
+                            is_real = false;
+                        }
+                    }
+                }
+                let ty = if !has_val {
+                    "TEXT"
+                } else if is_int {
+                    "INTEGER"
+                } else if is_real {
+                    "REAL"
+                } else {
+                    "TEXT"
+                };
+                format!("\"{col}\" {ty}")
+            })
+            .collect();
+
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Lock(e.to_string()))?;
+
+        let has_id = col_names.iter().any(|c| c.eq_ignore_ascii_case("id"));
+        let create_sql = if has_id {
+            format!(
+                "CREATE TABLE IF NOT EXISTS \"{table_name}\" ({});",
+                col_defs.join(", ")
+            )
+        } else {
+            format!(
+                "CREATE TABLE IF NOT EXISTS \"{table_name}\" (id INTEGER PRIMARY KEY AUTOINCREMENT, {});",
+                col_defs.join(", ")
+            )
+        };
+        conn.execute(&create_sql, [])?;
+
+        let quoted_cols: Vec<String> = col_names.iter().map(|c| format!("\"{c}\"")).collect();
+        let placeholders: Vec<String> = (1..=col_names.len()).map(|i| format!("?{i}")).collect();
+        let insert_sql = format!(
+            "INSERT INTO \"{table_name}\" ({}) VALUES ({});",
+            quoted_cols.join(", "),
+            placeholders.join(", ")
+        );
+
+        conn.execute("BEGIN IMMEDIATE;", [])?;
+        let mut inserted = 0usize;
+        for item in arr {
+            let mut params: Vec<rusqlite::types::Value> = Vec::with_capacity(raw_keys.len());
+            for raw_key in &raw_keys {
+                let val = item.get(raw_key).unwrap_or(&serde_json::Value::Null);
+                let sql_val = match val {
+                    serde_json::Value::Null => rusqlite::types::Value::Null,
+                    serde_json::Value::Bool(b) => {
+                        rusqlite::types::Value::Integer(if *b { 1 } else { 0 })
+                    }
+                    serde_json::Value::Number(n) => {
+                        if let Some(i) = n.as_i64() {
+                            rusqlite::types::Value::Integer(i)
+                        } else if let Some(f) = n.as_f64() {
+                            rusqlite::types::Value::Real(f)
+                        } else {
+                            rusqlite::types::Value::Text(n.to_string())
+                        }
+                    }
+                    serde_json::Value::String(s) => rusqlite::types::Value::Text(s.clone()),
+                    other => rusqlite::types::Value::Text(other.to_string()),
+                };
+                params.push(sql_val);
+            }
+            conn.execute(&insert_sql, rusqlite::params_from_iter(params.iter()))?;
+            inserted += 1;
+        }
+        conn.execute("COMMIT;", [])?;
+
+        Ok(inserted)
+    }
+
     /// Inspect columns and foreign keys for a specific table.
     pub fn table_schema(&self, table_name: &str) -> Result<TableSchema, StoreError> {
         // Sanitize table name (prevent SQL injection into PRAGMA)
