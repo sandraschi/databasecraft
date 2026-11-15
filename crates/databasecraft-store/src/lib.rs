@@ -233,13 +233,22 @@ impl DatabaseStore {
         new_val: &serde_json::Value,
     ) -> Result<usize, StoreError> {
         if !table.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-            return Err(StoreError::InvalidInput(format!("invalid table name '{table}'")));
+            return Err(StoreError::InvalidInput(format!(
+                "invalid table name '{table}'"
+            )));
         }
-        if !pk_col.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-            return Err(StoreError::InvalidInput(format!("invalid primary key column '{pk_col}'")));
+        if !pk_col
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
+            return Err(StoreError::InvalidInput(format!(
+                "invalid primary key column '{pk_col}'"
+            )));
         }
         if !col.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-            return Err(StoreError::InvalidInput(format!("invalid target column '{col}'")));
+            return Err(StoreError::InvalidInput(format!(
+                "invalid target column '{col}'"
+            )));
         }
 
         let conn = self
@@ -270,7 +279,7 @@ impl DatabaseStore {
             .map_err(|e| StoreError::Lock(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT name FROM sqlite_master 
-             WHERE type='table' AND name NOT LIKE 'sqlite_%' 
+             WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_dbcraft_%'
              ORDER BY name ASC;",
         )?;
         let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
@@ -279,6 +288,77 @@ impl DatabaseStore {
             tables.push(r?);
         }
         Ok(tables)
+    }
+
+    fn ensure_perspectives_table(conn: &rusqlite::Connection) -> Result<(), StoreError> {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS _dbcraft_perspectives (
+                name TEXT PRIMARY KEY,
+                root_table TEXT NOT NULL,
+                spec_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );",
+            [],
+        )?;
+        Ok(())
+    }
+
+    /// Save or update a named Relational Canvas perspective in SQLite.
+    pub fn save_perspective(
+        &self,
+        name: &str,
+        root_table: &str,
+        spec_json: &str,
+    ) -> Result<(), StoreError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Lock(e.to_string()))?;
+        Self::ensure_perspectives_table(&conn)?;
+        conn.execute(
+            "INSERT OR REPLACE INTO _dbcraft_perspectives (name, root_table, spec_json, updated_at)
+             VALUES (?1, ?2, ?3, datetime('now'));",
+            rusqlite::params![name, root_table, spec_json],
+        )?;
+        Ok(())
+    }
+
+    /// List all saved Relational Canvas perspectives ordered by most recently updated.
+    pub fn list_perspectives(&self) -> Result<Vec<(String, String, String)>, StoreError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Lock(e.to_string()))?;
+        Self::ensure_perspectives_table(&conn)?;
+        let mut stmt = conn.prepare(
+            "SELECT name, root_table, spec_json FROM _dbcraft_perspectives ORDER BY updated_at DESC, name ASC;",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
+    /// Delete a saved Relational Canvas perspective by name.
+    pub fn delete_perspective(&self, name: &str) -> Result<(), StoreError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Lock(e.to_string()))?;
+        Self::ensure_perspectives_table(&conn)?;
+        conn.execute(
+            "DELETE FROM _dbcraft_perspectives WHERE name = ?1;",
+            rusqlite::params![name],
+        )?;
+        Ok(())
     }
 
     /// Inspect columns and foreign keys for a specific table.

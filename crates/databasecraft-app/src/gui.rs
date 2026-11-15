@@ -11,8 +11,8 @@
 
 use databasecraft_core::canvas::{
     suggest_display_column, AggFunc, CanvasAggregation, CanvasColumn, CanvasCompiler,
-    CanvasFilter, CanvasInlinedLookup, CanvasNestedRelation, CanvasSort, CanvasSpec, FilterOp,
-    TableRelations,
+    CanvasFilter, CanvasFormula, CanvasInlinedLookup, CanvasNestedRelation, CanvasSort,
+    CanvasSpec, FilterOp, TableRelations,
 };
 use databasecraft_core::notifications::{CraftNotification, NotificationSeverity};
 use databasecraft_core::{dispatch, models::ExportTarget, Command, APP_VERSION, CONTROL_PORT};
@@ -531,6 +531,15 @@ pub struct DatabaseCraftGui {
     pub filter_draft_op: FilterOp,
     pub filter_draft_val: String,
     pub filter_builder_open: bool,
+    // Phase C: Query Algebra, Saved Perspectives & Undoable Perspective History
+    pub perspective_undo_stack: Vec<CanvasSpec>,
+    pub perspective_redo_stack: Vec<CanvasSpec>,
+    pub saved_perspectives: Vec<(String, String, String)>,
+    pub save_perspective_name: String,
+    pub save_perspective_open: bool,
+    pub active_perspective_name: Option<String>,
+    pub formula_draft_alias: String,
+    pub formula_draft_expr: String,
 }
 
 impl DatabaseCraftGui {
@@ -627,9 +636,18 @@ impl DatabaseCraftGui {
             filter_draft_op: FilterOp::Like,
             filter_draft_val: String::new(),
             filter_builder_open: false,
+            perspective_undo_stack: Vec::new(),
+            perspective_redo_stack: Vec::new(),
+            saved_perspectives: Vec::new(),
+            save_perspective_name: String::new(),
+            save_perspective_open: false,
+            active_perspective_name: None,
+            formula_draft_alias: "computed_val".to_string(),
+            formula_draft_expr: String::new(),
         };
 
         app.refresh_notifications();
+        app.refresh_saved_perspectives();
 
         if let Some(ref t) = first_table {
             app.load_table_data(t);
@@ -925,12 +943,16 @@ impl DatabaseCraftGui {
             inlined_lookups: Vec::new(),
             nested_relations: Vec::new(),
             aggregations: Vec::new(),
+            formulas: Vec::new(),
             filters: Vec::new(),
             sort: Vec::new(),
             limit: Some(50),
             offset: None,
         };
 
+        self.perspective_undo_stack.clear();
+        self.perspective_redo_stack.clear();
+        self.active_perspective_name = None;
         self.canvas_spec = Some(spec);
         self.run_canvas_query();
     }
@@ -1040,6 +1062,7 @@ impl DatabaseCraftGui {
     }
 
     pub fn remove_inlined_lookup(&mut self, alias: &str) {
+        self.push_perspective_history();
         if let Some(ref mut spec) = self.canvas_spec {
             spec.inlined_lookups
                 .retain(|l| !l.alias.eq_ignore_ascii_case(alias));
@@ -1048,6 +1071,7 @@ impl DatabaseCraftGui {
     }
 
     pub fn toggle_canvas_sort(&mut self, col_name: &str) {
+        self.push_perspective_history();
         if let Some(ref mut spec) = self.canvas_spec {
             let existing_idx = spec
                 .sort
@@ -1183,6 +1207,7 @@ impl DatabaseCraftGui {
     }
 
     pub fn remove_sprouted_relation(&mut self, rel_name: &str) {
+        self.push_perspective_history();
         if let Some(ref mut spec) = self.canvas_spec {
             spec.nested_relations
                 .retain(|r| !r.relation_name.eq_ignore_ascii_case(rel_name));
@@ -1190,7 +1215,123 @@ impl DatabaseCraftGui {
         self.run_canvas_query();
     }
 
+    pub fn push_perspective_history(&mut self) {
+        if let Some(ref spec) = self.canvas_spec {
+            self.perspective_undo_stack.push(spec.clone());
+            if self.perspective_undo_stack.len() > 40 {
+                self.perspective_undo_stack.remove(0);
+            }
+            self.perspective_redo_stack.clear();
+        }
+    }
+
+    pub fn undo_perspective(&mut self) {
+        if let Some(prev) = self.perspective_undo_stack.pop() {
+            if let Some(curr) = self.canvas_spec.take() {
+                self.perspective_redo_stack.push(curr);
+            }
+            self.canvas_root_table = Some(prev.root_table.clone());
+            self.canvas_spec = Some(prev);
+            self.run_canvas_query();
+            self.status_message = "Undid perspective change".to_string();
+        }
+    }
+
+    pub fn redo_perspective(&mut self) {
+        if let Some(next) = self.perspective_redo_stack.pop() {
+            if let Some(curr) = self.canvas_spec.take() {
+                self.perspective_undo_stack.push(curr);
+            }
+            self.canvas_root_table = Some(next.root_table.clone());
+            self.canvas_spec = Some(next);
+            self.run_canvas_query();
+            self.status_message = "Redid perspective change".to_string();
+        }
+    }
+
+    pub fn refresh_saved_perspectives(&mut self) {
+        if let Ok(list) = self.store.list_perspectives() {
+            self.saved_perspectives = list;
+        }
+    }
+
+    pub fn save_current_perspective(&mut self, name: &str) {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        if let Some(ref spec) = self.canvas_spec {
+            if let Ok(json) = serde_json::to_string(spec) {
+                if self
+                    .store
+                    .save_perspective(trimmed, &spec.root_table, &json)
+                    .is_ok()
+                {
+                    self.active_perspective_name = Some(trimmed.to_string());
+                    self.refresh_saved_perspectives();
+                    self.status_message = format!("Saved perspective '{trimmed}'");
+                }
+            }
+        }
+    }
+
+    pub fn load_saved_perspective(&mut self, name: &str) {
+        if let Some((_, root_table, json)) = self
+            .saved_perspectives
+            .iter()
+            .find(|(n, _, _)| n == name)
+            .cloned()
+        {
+            if let Ok(spec) = serde_json::from_str::<CanvasSpec>(&json) {
+                let prev = self.canvas_spec.clone();
+                self.selected_table = Some(root_table.clone());
+                self.init_canvas_for_table(&root_table);
+                if let Some(p) = prev {
+                    self.perspective_undo_stack.push(p);
+                }
+                self.canvas_spec = Some(spec);
+                self.active_perspective_name = Some(name.to_string());
+                self.active_tab = ActiveTab::Canvas;
+                self.run_canvas_query();
+                self.status_message = format!("Loaded perspective '{name}'");
+            }
+        }
+    }
+
+    pub fn delete_saved_perspective(&mut self, name: &str) {
+        if self.store.delete_perspective(name).is_ok() {
+            if self.active_perspective_name.as_deref() == Some(name) {
+                self.active_perspective_name = None;
+            }
+            self.refresh_saved_perspectives();
+            self.status_message = format!("Deleted perspective '{name}'");
+        }
+    }
+
+    pub fn add_canvas_formula(&mut self, alias: String, expr: String) {
+        if alias.trim().is_empty() || expr.trim().is_empty() {
+            return;
+        }
+        self.push_perspective_history();
+        if let Some(ref mut spec) = self.canvas_spec {
+            spec.formulas
+                .retain(|f| !f.alias.eq_ignore_ascii_case(&alias));
+            spec.formulas.push(CanvasFormula { alias, expr });
+        }
+        self.run_canvas_query();
+    }
+
+    pub fn remove_canvas_formula(&mut self, alias: &str) {
+        self.push_perspective_history();
+        if let Some(ref mut spec) = self.canvas_spec {
+            spec.formulas
+                .retain(|f| !f.alias.eq_ignore_ascii_case(alias));
+        }
+        self.run_canvas_query();
+    }
+
     pub fn add_canvas_filter(&mut self, column: String, op: FilterOp, value: Value) {
+        self.push_perspective_history();
         if let Some(ref mut spec) = self.canvas_spec {
             spec.filters.push(CanvasFilter { column, op, value });
         }
@@ -1198,6 +1339,7 @@ impl DatabaseCraftGui {
     }
 
     pub fn remove_canvas_filter(&mut self, idx: usize) {
+        self.push_perspective_history();
         if let Some(ref mut spec) = self.canvas_spec {
             if idx < spec.filters.len() {
                 spec.filters.remove(idx);
@@ -1207,6 +1349,7 @@ impl DatabaseCraftGui {
     }
 
     pub fn clear_canvas_filters(&mut self) {
+        self.push_perspective_history();
         if let Some(ref mut spec) = self.canvas_spec {
             spec.filters.clear();
         }
@@ -1214,6 +1357,7 @@ impl DatabaseCraftGui {
     }
 
     pub fn set_column_visibility(&mut self, col_name: &str, visible: bool) {
+        self.push_perspective_history();
         if let Some(ref mut spec) = self.canvas_spec {
             if let Some(c) = spec.columns.iter_mut().find(|c| c.name == col_name) {
                 c.visible = visible;
@@ -2836,12 +2980,15 @@ impl eframe::App for DatabaseCraftGui {
 
         // 2. Top Command Bar (Quick Actions Toolbar)
         if self.show_top_command_bar {
+            let mut load_persp: Option<String> = None;
+            let mut del_persp: Option<String> = None;
             egui::Panel::top("top_bar").show(ui, |ui| {
                 let palette = CanvasPalette::from_ui(ui);
                 ui.horizontal(|ui| {
                     let active_perspective = self
-                        .canvas_root_table
+                        .active_perspective_name
                         .as_deref()
+                        .or(self.canvas_root_table.as_deref())
                         .or(self.selected_table.as_deref())
                         .unwrap_or("Perspective");
                     let tab_label = format!("  {}  ", active_perspective);
@@ -2859,6 +3006,31 @@ impl eframe::App for DatabaseCraftGui {
                         .clicked()
                     {
                         self.active_tab = ActiveTab::Canvas;
+                    }
+                    for (pname, _, _) in &self.saved_perspectives {
+                        let is_active = self.active_perspective_name.as_deref() == Some(pname.as_str())
+                            && self.active_tab == ActiveTab::Canvas;
+                        if ui
+                            .selectable_label(
+                                is_active,
+                                egui::RichText::new(pname)
+                                    .color(if is_active {
+                                        palette.accent_selection
+                                    } else {
+                                        palette.text_muted
+                                    }),
+                            )
+                            .clicked()
+                        {
+                            load_persp = Some(pname.clone());
+                        }
+                        if ui
+                            .small_button("×")
+                            .on_hover_text(format!("Delete saved perspective '{pname}'"))
+                            .clicked()
+                        {
+                            del_persp = Some(pname.clone());
+                        }
                     }
                     if ui
                         .small_button("+")
@@ -2981,6 +3153,12 @@ impl eframe::App for DatabaseCraftGui {
                     });
                 });
             });
+            if let Some(name) = load_persp {
+                self.load_saved_perspective(&name);
+            }
+            if let Some(name) = del_persp {
+                self.delete_saved_perspective(&name);
+            }
         }
 
         // 3. Bottom Status Bar
@@ -3300,6 +3478,30 @@ impl eframe::App for DatabaseCraftGui {
                         self.run_canvas_query();
                     }
 
+                    if !self.perspective_undo_stack.is_empty()
+                        && ui
+                            .button(format!("↶ Undo ({})", self.perspective_undo_stack.len()))
+                            .on_hover_text("Undo perspective change")
+                            .clicked()
+                    {
+                        self.undo_perspective();
+                    }
+                    if !self.perspective_redo_stack.is_empty()
+                        && ui
+                            .button(format!("↷ Redo ({})", self.perspective_redo_stack.len()))
+                            .on_hover_text("Redo perspective change")
+                            .clicked()
+                    {
+                        self.redo_perspective();
+                    }
+
+                    if ui.button("Save...").clicked() {
+                        if self.save_perspective_name.is_empty() {
+                            self.save_perspective_name = format!("{current_table}_view");
+                        }
+                        self.save_perspective_open = !self.save_perspective_open;
+                    }
+
                     ui.separator();
                     ui.label("Density:");
                     ui.selectable_value(
@@ -3340,12 +3542,32 @@ impl eframe::App for DatabaseCraftGui {
                     }
                 });
 
+                if self.save_perspective_open {
+                    ui.horizontal(|ui| {
+                        ui.colored_label(palette.accent_primary, "Save Perspective:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.save_perspective_name)
+                                .hint_text("perspective name...")
+                                .desired_width(180.0),
+                        );
+                        if ui.button("Save").clicked() && !self.save_perspective_name.trim().is_empty() {
+                            let name = self.save_perspective_name.clone();
+                            self.save_current_perspective(&name);
+                            self.save_perspective_open = false;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            self.save_perspective_open = false;
+                        }
+                    });
+                }
+
                 // Sprout bar: Forward and reverse relationships discovered
                 let mut sprout_action: Option<(String, bool)> = None;
                 let mut inline_action: Option<String> = None;
                 let mut remove_sprout_action: Option<String> = None;
                 let mut remove_inline_action: Option<String> = None;
                 let mut remove_agg_alias: Option<String> = None;
+                let mut remove_formula_alias: Option<String> = None;
                 let mut remove_filter_idx: Option<usize> = None;
                 let mut add_filter_action: Option<(String, FilterOp, Value)> = None;
                 let mut clear_filters_action = false;
@@ -3437,6 +3659,20 @@ impl eframe::App for DatabaseCraftGui {
                                     .clicked()
                                 {
                                     remove_agg_alias = Some(agg.alias.clone());
+                                }
+                            }
+                            for formula in &spec.formulas {
+                                if ui
+                                    .button(
+                                        egui::RichText::new(format!(
+                                            "fx {} ×",
+                                            formula.alias
+                                        ))
+                                        .color(palette.tier1_lookup_text),
+                                    )
+                                    .clicked()
+                                {
+                                    remove_formula_alias = Some(formula.alias.clone());
                                 }
                             }
                         }
@@ -3596,6 +3832,9 @@ impl eframe::App for DatabaseCraftGui {
                 if let Some(alias) = remove_agg_alias {
                     self.remove_canvas_aggregation(&alias);
                 }
+                if let Some(alias) = remove_formula_alias {
+                    self.remove_canvas_formula(&alias);
+                }
                 if let Some(idx) = remove_filter_idx {
                     self.remove_canvas_filter(idx);
                 }
@@ -3721,6 +3960,13 @@ impl eframe::App for DatabaseCraftGui {
                                 .map(|s| s.aggregations.clone())
                                 .unwrap_or_default();
 
+                            // Extract calculated formula columns
+                            let formulas = self
+                                .canvas_spec
+                                .as_ref()
+                                .map(|s| s.formulas.clone())
+                                .unwrap_or_default();
+
                             let pk_col = self
                                 .store
                                 .get_primary_key(&current_table)
@@ -3759,6 +4005,9 @@ impl eframe::App for DatabaseCraftGui {
                             }
                             for a in &rollups {
                                 col_widths_map.insert(a.alias.clone(), self.get_column_width(&a.alias));
+                            }
+                            for f in &formulas {
+                                col_widths_map.insert(f.alias.clone(), self.get_column_width(&f.alias));
                             }
 
                             let sort_map: std::collections::HashMap<String, &'static str> = self
@@ -3892,6 +4141,24 @@ impl eframe::App for DatabaseCraftGui {
                                                             egui::RichText::new("∑ ROLLUPS")
                                                                 .size(font_size + 1.0)
                                                                 .color(palette.tier1_rollup_text),
+                                                        );
+                                                    });
+                                            }
+
+                                            // Formulas Band
+                                            if !formulas.is_empty() {
+                                                egui::Frame::new()
+                                                    .fill(palette.tier1_lookup_bg)
+                                                    .stroke(egui::Stroke::new(
+                                                        1.0,
+                                                        palette.tier1_lookup_border,
+                                                    ))
+                                                    .inner_margin(egui::Margin::symmetric(12, 4))
+                                                    .show(ui, |ui| {
+                                                        ui.strong(
+                                                            egui::RichText::new("fx FORMULAS")
+                                                                .size(font_size + 1.0)
+                                                                .color(palette.tier1_lookup_text),
                                                         );
                                                     });
                                             }
@@ -4217,6 +4484,24 @@ impl eframe::App for DatabaseCraftGui {
                                                         if resize_resp.hovered() || resize_resp.dragged() { 2.0 } else { 1.0 },
                                                         div_col,
                                                     ),
+                                                );
+                                            }
+
+                                            // Formula column headers
+                                            for formula in &formulas {
+                                                let col_width = col_widths_map.get(&formula.alias).copied().unwrap_or(135.0);
+                                                let (header_rect, _) = ui.allocate_exact_size(
+                                                    Vec2::new(col_width + 6.0, header_h),
+                                                    egui::Sense::hover(),
+                                                );
+                                                ui.painter().rect_filled(header_rect, 0.0, palette.tier2_lookup_bg);
+                                                ui.painter().rect_stroke(header_rect, 0.0, border_stroke, egui::StrokeKind::Inside);
+                                                ui.painter().text(
+                                                    header_rect.center(),
+                                                    egui::Align2::CENTER_CENTER,
+                                                    format!("fx {}", formula.alias.to_uppercase()),
+                                                    egui::FontId::proportional(font_size),
+                                                    palette.tier1_lookup_text,
                                                 );
                                             }
                                         });
@@ -4640,6 +4925,32 @@ impl eframe::App for DatabaseCraftGui {
                                                                         }
                                                                     });
                                                             }
+
+                                                            // Calculated Formula Columns
+                                                            for formula in &formulas {
+                                                                let col_width = col_widths_map.get(&formula.alias).copied().unwrap_or(135.0);
+                                                                let cell_total_w = col_width + 6.0;
+                                                                let val = obj
+                                                                    .get(&formula.alias)
+                                                                    .unwrap_or(&Value::Null);
+                                                                egui::Frame::new()
+                                                                    .stroke(border_stroke)
+                                                                    .inner_margin(
+                                                                        egui::Margin::symmetric(
+                                                                            pad.0, pad.1,
+                                                                        ),
+                                                                    )
+                                                                    .show(ui, |ui| {
+                                                                        ui.set_width(cell_total_w - (pad.0 as f32 * 2.0));
+                                                                        render_formatted_cell(
+                                                                            ui,
+                                                                            &formula.alias,
+                                                                            val,
+                                                                            density,
+                                                                            &palette,
+                                                                        );
+                                                                    });
+                                                            }
                                                         });
                                                     });
                                             }
@@ -4838,6 +5149,28 @@ impl eframe::App for DatabaseCraftGui {
                                 let func = self.canvas_rollup_func;
                                 let alias = self.canvas_rollup_alias.clone();
                                 self.add_canvas_aggregation(target_relation, col, func, alias);
+                            }
+
+                            ui.separator();
+                            ui.strong("Add Calculated Formula Column (fx):");
+                            ui.horizontal(|ui| {
+                                ui.label("Alias:");
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.formula_draft_alias)
+                                        .desired_width(90.0),
+                                );
+                                ui.label("Expr:");
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.formula_draft_expr)
+                                        .hint_text("e.g. freight * 1.15")
+                                        .desired_width(140.0),
+                                );
+                            });
+                            if ui.button("+ Add Formula").clicked() {
+                                let alias = self.formula_draft_alias.clone();
+                                let expr = self.formula_draft_expr.clone();
+                                self.add_canvas_formula(alias, expr);
+                                self.formula_draft_expr.clear();
                             }
 
                             ui.add_space(8.0);

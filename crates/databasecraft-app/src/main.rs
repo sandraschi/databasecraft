@@ -831,4 +831,70 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_canvas_phase_c_algebra_history_and_persistence(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let store = Arc::new(DatabaseStore::open_in_memory()?);
+        let rt = Arc::new(tokio::runtime::Runtime::new()?);
+
+        rt.block_on(databasecraft_core::dispatch(
+            databasecraft_core::Command::SeedDemo {
+                name: "northwind".to_string(),
+            },
+            &store,
+        ));
+
+        let mut gui = gui::DatabaseCraftGui::new(store.clone(), rt.clone());
+        gui.init_canvas_for_table("orders");
+
+        // 1. Calculated formula column (fx)
+        gui.add_canvas_formula("double_freight".to_string(), "freight * 2".to_string());
+        let has_formula_val = gui
+            .canvas_result
+            .as_ref()
+            .and_then(|r| r["result"]["data"].as_array())
+            .and_then(|a| a.first())
+            .and_then(|row| row.get("double_freight"))
+            .and_then(|v| v.as_f64())
+            .is_some();
+        assert!(has_formula_val, "Expected calculated formula column value");
+
+        // 2. Undoable perspective history
+        assert_eq!(gui.perspective_undo_stack.len(), 1);
+        gui.undo_perspective();
+        assert_eq!(
+            gui.canvas_spec.as_ref().map(|s| s.formulas.len()),
+            Some(0)
+        );
+        assert_eq!(gui.perspective_redo_stack.len(), 1);
+
+        gui.redo_perspective();
+        assert_eq!(
+            gui.canvas_spec.as_ref().map(|s| s.formulas.len()),
+            Some(1)
+        );
+
+        // 3. Saved perspectives SQLite persistence
+        gui.save_current_perspective("orders_with_fx");
+        assert_eq!(gui.saved_perspectives.len(), 1);
+        assert!(!store.list_tables()?.contains(&"_dbcraft_perspectives".to_string()));
+
+        // Switch away, then load saved perspective back
+        gui.init_canvas_for_table("customers");
+        assert_eq!(gui.canvas_root_table.as_deref(), Some("customers"));
+
+        gui.load_saved_perspective("orders_with_fx");
+        assert_eq!(gui.canvas_root_table.as_deref(), Some("orders"));
+        assert_eq!(
+            gui.canvas_spec.as_ref().map(|s| s.formulas.len()),
+            Some(1)
+        );
+
+        // Delete saved perspective
+        gui.delete_saved_perspective("orders_with_fx");
+        assert!(gui.saved_perspectives.is_empty());
+
+        Ok(())
+    }
 }
