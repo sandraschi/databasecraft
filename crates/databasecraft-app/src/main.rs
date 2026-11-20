@@ -776,10 +776,7 @@ mod tests {
             .map(|a| a.len())
             .unwrap_or(0);
         assert_eq!(filtered_count, 1);
-        assert_eq!(
-            gui.canvas_spec.as_ref().map(|s| s.filters.len()),
-            Some(1)
-        );
+        assert_eq!(gui.canvas_spec.as_ref().map(|s| s.filters.len()), Some(1));
 
         // 2. Remove filter chip and verify all rows return
         gui.remove_canvas_filter(0);
@@ -798,10 +795,7 @@ mod tests {
             serde_json::Value::Null,
         );
         gui.clear_canvas_filters();
-        assert_eq!(
-            gui.canvas_spec.as_ref().map(|s| s.filters.len()),
-            Some(0)
-        );
+        assert_eq!(gui.canvas_spec.as_ref().map(|s| s.filters.len()), Some(0));
 
         // 4. Column visibility toggles (root & nested)
         gui.set_column_visibility("country", false);
@@ -863,22 +857,18 @@ mod tests {
         // 2. Undoable perspective history
         assert_eq!(gui.perspective_undo_stack.len(), 1);
         gui.undo_perspective();
-        assert_eq!(
-            gui.canvas_spec.as_ref().map(|s| s.formulas.len()),
-            Some(0)
-        );
+        assert_eq!(gui.canvas_spec.as_ref().map(|s| s.formulas.len()), Some(0));
         assert_eq!(gui.perspective_redo_stack.len(), 1);
 
         gui.redo_perspective();
-        assert_eq!(
-            gui.canvas_spec.as_ref().map(|s| s.formulas.len()),
-            Some(1)
-        );
+        assert_eq!(gui.canvas_spec.as_ref().map(|s| s.formulas.len()), Some(1));
 
         // 3. Saved perspectives SQLite persistence
         gui.save_current_perspective("orders_with_fx");
         assert_eq!(gui.saved_perspectives.len(), 1);
-        assert!(!store.list_tables()?.contains(&"_dbcraft_perspectives".to_string()));
+        assert!(!store
+            .list_tables()?
+            .contains(&"_dbcraft_perspectives".to_string()));
 
         // Switch away, then load saved perspective back
         gui.init_canvas_for_table("customers");
@@ -886,10 +876,7 @@ mod tests {
 
         gui.load_saved_perspective("orders_with_fx");
         assert_eq!(gui.canvas_root_table.as_deref(), Some("orders"));
-        assert_eq!(
-            gui.canvas_spec.as_ref().map(|s| s.formulas.len()),
-            Some(1)
-        );
+        assert_eq!(gui.canvas_spec.as_ref().map(|s| s.formulas.len()), Some(1));
 
         // Delete saved perspective
         gui.delete_saved_perspective("orders_with_fx");
