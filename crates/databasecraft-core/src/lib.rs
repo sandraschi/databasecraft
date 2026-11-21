@@ -70,6 +70,7 @@ pub const CMD_NOTIFICATIONS_LIST: &str = "notifications.list";
 pub const CMD_NOTIFICATION_ACK: &str = "notifications.ack";
 pub const CMD_WATCHDOG_CHECK: &str = "watchdog.check";
 pub const CMD_WATCHDOG_RULES: &str = "watchdog.rules";
+pub const CMD_EXPORT_DATASETTE: &str = "export.datasette";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "command", content = "params")]
@@ -101,6 +102,11 @@ pub enum Command {
         query: String,
         target: ExportTarget,
         name: Option<String>,
+    },
+    ExportDatasette {
+        output_dir: String,
+        title: Option<String>,
+        include_internal: Option<bool>,
     },
     SeedDemo {
         name: String,
@@ -395,6 +401,16 @@ fn execute_dispatch(cmd: Command, store: &DatabaseStore) -> Result<Value, Databa
                 "export": exported_value,
             }))
         }
+        Command::ExportDatasette {
+            output_dir,
+            title,
+            include_internal,
+        } => export::export_datasette(
+            store,
+            &output_dir,
+            title.as_deref(),
+            include_internal.unwrap_or(false),
+        ),
         Command::SeedDemo { name } => {
             let kind = DemoKind::parse(&name)?;
             seed_demo_dataset(store, kind)?;
@@ -1110,6 +1126,16 @@ pub fn command_registry() -> Vec<CommandDescriptor> {
             label: "Get Watchdog Rules & Config".to_string(),
             description: "Inspect quiescent table watchlist and operational alerting thresholds".to_string(),
             params: json!({}),
+        },
+        CommandDescriptor {
+            id: CMD_EXPORT_DATASETTE.to_string(),
+            label: "Export Datasette Bundle".to_string(),
+            description: "Export a clean SQLite snapshot and Datasette metadata.json (tables + canned queries from saved perspectives)".to_string(),
+            params: json!({
+                "output_dir": "string",
+                "title": "string (optional)",
+                "include_internal": "boolean (optional, default false)"
+            }),
         },
     ]
 }

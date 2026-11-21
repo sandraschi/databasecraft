@@ -84,6 +84,19 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Export a clean SQLite snapshot and Datasette metadata.json (datasette.io)
+    ExportDatasette {
+        #[arg(long)]
+        out_dir: String,
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        include_internal: bool,
+        #[arg(long)]
+        db: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
     /// Seed a deterministic demo dataset (ecommerce, film, kpi)
     SeedDemo {
         #[arg(long)]
@@ -440,6 +453,34 @@ fn main() {
                 } else {
                     println!("Export written successfully to {out_path}");
                 }
+            } else {
+                println!("{res}");
+            }
+        }
+        Commands::ExportDatasette {
+            out_dir,
+            title,
+            include_internal,
+            db,
+            json,
+        } => {
+            let store = open_store(db.as_deref());
+            let res = rt.block_on(dispatch(
+                Command::ExportDatasette {
+                    output_dir: out_dir,
+                    title,
+                    include_internal: Some(include_internal),
+                },
+                &store,
+            ));
+            if json {
+                println!("{res}");
+            } else if res["success"].as_bool() == Some(true) {
+                println!(
+                    "Datasette bundle exported to: {}\nLaunch: {}",
+                    res["output_dir"].as_str().unwrap_or(""),
+                    res["launch_command"].as_str().unwrap_or("")
+                );
             } else {
                 println!("{res}");
             }
@@ -869,13 +910,19 @@ fn main() {
                 println!("Forward Relations (N:1):");
                 if let Some(fw) = res["forward_relations"].as_array() {
                     for r in fw {
-                        println!("  - {} -> {}.{} (via {})", r["label"], r["table"], r["target_col"], r["source_col"]);
+                        println!(
+                            "  - {} -> {}.{} (via {})",
+                            r["label"], r["table"], r["target_col"], r["source_col"]
+                        );
                     }
                 }
                 println!("Reverse Relations (1:N):");
                 if let Some(rev) = res["reverse_relations"].as_array() {
                     for r in rev {
-                        println!("  - {} <- {}.{} (via {})", r["label"], r["table"], r["target_col"], r["source_col"]);
+                        println!(
+                            "  - {} <- {}.{} (via {})",
+                            r["label"], r["table"], r["target_col"], r["source_col"]
+                        );
                     }
                 }
             } else {
@@ -886,11 +933,15 @@ fn main() {
             let store = open_store(db.as_deref());
             match serde_json::from_str::<databasecraft_core::canvas::CanvasSpec>(&spec) {
                 Ok(parsed_spec) => {
-                    let res = rt.block_on(dispatch(Command::CanvasQuery { spec: parsed_spec }, &store));
+                    let res =
+                        rt.block_on(dispatch(Command::CanvasQuery { spec: parsed_spec }, &store));
                     if json {
                         println!("{res}");
                     } else if res["success"] == true {
-                        println!("{}", serde_json::to_string_pretty(&res["result"]).unwrap_or_default());
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&res["result"]).unwrap_or_default()
+                        );
                     } else {
                         eprintln!("Canvas Query Error: {}", res["error"]);
                     }
@@ -909,7 +960,8 @@ fn main() {
         } => {
             let store = open_store(db.as_deref());
             let parsed_pk: Value = serde_json::from_str(&pk_val).unwrap_or(Value::String(pk_val));
-            let parsed_new: Value = serde_json::from_str(&new_val).unwrap_or(Value::String(new_val));
+            let parsed_new: Value =
+                serde_json::from_str(&new_val).unwrap_or(Value::String(new_val));
             let res = rt.block_on(dispatch(
                 Command::UpdateCell {
                     table,
@@ -932,14 +984,24 @@ fn main() {
             }
         }
         Commands::Notifications { unack, json } => {
-            let notifs = databasecraft_core::notifications::global_notification_bus().list(None, unack);
+            let notifs =
+                databasecraft_core::notifications::global_notification_bus().list(None, unack);
             if json {
-                println!("{}", serde_json::to_string_pretty(&notifs).unwrap_or_else(|_| "[]".to_string()));
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&notifs).unwrap_or_else(|_| "[]".to_string())
+                );
             } else {
                 println!("Active Notifications & Alerts ({} total):", notifs.len());
                 for n in notifs {
                     let status = if n.acknowledged { "[ACK]" } else { "[UNACK]" };
-                    println!("  {:8} {:7} {} - {}", format!("[{:?}]", n.severity), status, n.title, n.message);
+                    println!(
+                        "  {:8} {:7} {} - {}",
+                        format!("[{:?}]", n.severity),
+                        status,
+                        n.title,
+                        n.message
+                    );
                 }
             }
         }
@@ -1199,6 +1261,19 @@ pub fn tools_list() -> Value {
                     "name": { "type": "string", "description": "Dataset or document title identifier" }
                 },
                 "required": ["query", "target"]
+            }
+        },
+        {
+            "name": "db_export_datasette",
+            "description": "Export a clean SQLite snapshot and Datasette (datasette.io) metadata.json with table metadata and canned queries from saved perspectives",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "output_dir": { "type": "string", "description": "Directory where the .sqlite snapshot and metadata.json will be written" },
+                    "title": { "type": "string", "description": "Optional Datasette display title (also used as database filename stem)" },
+                    "include_internal": { "type": "boolean", "description": "Include _dbcraft_* internal metadata tables in the exported SQLite file (default false)" }
+                },
+                "required": ["output_dir"]
             }
         },
         {
@@ -1511,6 +1586,19 @@ pub fn call_tool(rt: &Runtime, store: &DatabaseStore, name: &str, args: &Value) 
                 }
             }
         }
+        "db_export_datasette" => {
+            let output_dir = args["output_dir"].as_str().unwrap_or("").to_string();
+            let title = args["title"].as_str().map(|s| s.to_string());
+            let include_internal = args["include_internal"].as_bool();
+            rt.block_on(dispatch(
+                Command::ExportDatasette {
+                    output_dir,
+                    title,
+                    include_internal,
+                },
+                store,
+            ))
+        }
         "db_seed_demo" => {
             let name = args["name"].as_str().unwrap_or("").to_string();
             rt.block_on(dispatch(Command::SeedDemo { name }, store))
@@ -1675,14 +1763,18 @@ pub fn call_tool(rt: &Runtime, store: &DatabaseStore, name: &str, args: &Value) 
             let spec_val = args.get("spec").cloned().unwrap_or(Value::Null);
             match serde_json::from_value::<databasecraft_core::canvas::CanvasSpec>(spec_val) {
                 Ok(spec) => rt.block_on(dispatch(Command::CanvasQuery { spec }, store)),
-                Err(e) => json!({ "success": false, "error": format!("Invalid CanvasSpec JSON: {e}") }),
+                Err(e) => {
+                    json!({ "success": false, "error": format!("Invalid CanvasSpec JSON: {e}") })
+                }
             }
         }
         "canvas_compile" => {
             let spec_val = args.get("spec").cloned().unwrap_or(Value::Null);
             match serde_json::from_value::<databasecraft_core::canvas::CanvasSpec>(spec_val) {
                 Ok(spec) => rt.block_on(dispatch(Command::CanvasCompileSql { spec }, store)),
-                Err(e) => json!({ "success": false, "error": format!("Invalid CanvasSpec JSON: {e}") }),
+                Err(e) => {
+                    json!({ "success": false, "error": format!("Invalid CanvasSpec JSON: {e}") })
+                }
             }
         }
         "db_schema_relations" => {
@@ -1693,21 +1785,34 @@ pub fn call_tool(rt: &Runtime, store: &DatabaseStore, name: &str, args: &Value) 
             let sev_str = args["severity"].as_str();
             let sev = match sev_str {
                 Some("info") => Some(databasecraft_core::notifications::NotificationSeverity::Info),
-                Some("warning") => Some(databasecraft_core::notifications::NotificationSeverity::Warning),
-                Some("critical") => Some(databasecraft_core::notifications::NotificationSeverity::Critical),
-                Some("disaster") => Some(databasecraft_core::notifications::NotificationSeverity::Disaster),
+                Some("warning") => {
+                    Some(databasecraft_core::notifications::NotificationSeverity::Warning)
+                }
+                Some("critical") => {
+                    Some(databasecraft_core::notifications::NotificationSeverity::Critical)
+                }
+                Some("disaster") => {
+                    Some(databasecraft_core::notifications::NotificationSeverity::Disaster)
+                }
                 _ => None,
             };
-            let unack = args.get("unacknowledged_only").and_then(|v| v.as_bool()).or(Some(true));
-            rt.block_on(dispatch(Command::NotificationsList { severity: sev, unacknowledged_only: unack }, store))
+            let unack = args
+                .get("unacknowledged_only")
+                .and_then(|v| v.as_bool())
+                .or(Some(true));
+            rt.block_on(dispatch(
+                Command::NotificationsList {
+                    severity: sev,
+                    unacknowledged_only: unack,
+                },
+                store,
+            ))
         }
         "db_notification_ack" => {
             let id = args["id"].as_str().unwrap_or("").to_string();
             rt.block_on(dispatch(Command::NotificationAck { id }, store))
         }
-        "db_watchdog_check" => {
-            rt.block_on(dispatch(Command::WatchdogCheck, store))
-        }
+        "db_watchdog_check" => rt.block_on(dispatch(Command::WatchdogCheck, store)),
         "db_update_cell" => {
             let table = args["table"].as_str().unwrap_or("").to_string();
             let pk_col = args["pk_col"].as_str().unwrap_or("").to_string();
