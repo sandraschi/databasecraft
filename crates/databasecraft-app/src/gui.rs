@@ -10,9 +10,9 @@
 #![deny(clippy::todo)]
 
 use databasecraft_core::canvas::{
-    suggest_display_column, AggFunc, CanvasAggregation, CanvasColumn, CanvasCompiler,
-    CanvasFilter, CanvasFormula, CanvasInlinedLookup, CanvasNestedRelation, CanvasSort,
-    CanvasSpec, FilterOp, TableRelations,
+    suggest_display_column, AggFunc, CanvasAggregation, CanvasColumn, CanvasCompiler, CanvasFilter,
+    CanvasFormula, CanvasInlinedLookup, CanvasNestedRelation, CanvasSort, CanvasSpec, FilterOp,
+    TableRelations,
 };
 use databasecraft_core::notifications::{CraftNotification, NotificationSeverity};
 use databasecraft_core::{dispatch, models::ExportTarget, Command, APP_VERSION, CONTROL_PORT};
@@ -3270,7 +3270,11 @@ impl eframe::App for DatabaseCraftGui {
                     ui.horizontal(|ui| {
                         ui.strong(format!("DATA SOURCES ({})", self.tables.len()));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.small_button("↻").on_hover_text("Refresh tables").clicked() {
+                            if ui
+                                .small_button("↻")
+                                .on_hover_text("Refresh tables")
+                                .clicked()
+                            {
                                 self.refresh_tables();
                             }
                         });
@@ -3286,7 +3290,11 @@ impl eframe::App for DatabaseCraftGui {
 
                     let mut table_to_select = None;
                     egui::ScrollArea::vertical()
-                        .max_height(if self.show_tools_section { 260.0 } else { 440.0 })
+                        .max_height(if self.show_tools_section {
+                            260.0
+                        } else {
+                            440.0
+                        })
                         .show(ui, |ui| {
                             for t in &self.tables {
                                 if !search_lower.is_empty()
@@ -3365,11 +3373,8 @@ impl eframe::App for DatabaseCraftGui {
                         if nav_button(ui, self.active_tab == ActiveTab::Tables, "Table Data") {
                             self.active_tab = ActiveTab::Tables;
                         }
-                        if nav_button(
-                            ui,
-                            self.active_tab == ActiveTab::Query,
-                            "SQL & NLQ Console",
-                        ) {
+                        if nav_button(ui, self.active_tab == ActiveTab::Query, "SQL & NLQ Console")
+                        {
                             self.active_tab = ActiveTab::Query;
                         }
                         if nav_button(ui, self.active_tab == ActiveTab::Schema, "Schema & ERD") {
@@ -3385,13 +3390,11 @@ impl eframe::App for DatabaseCraftGui {
                         if nav_button(ui, self.active_tab == ActiveTab::Rag, "RAG & Vectors") {
                             self.active_tab = ActiveTab::Rag;
                         }
-                        if nav_button(ui, self.active_tab == ActiveTab::Profiler, "Data Profiler")
-                        {
+                        if nav_button(ui, self.active_tab == ActiveTab::Profiler, "Data Profiler") {
                             self.active_tab = ActiveTab::Profiler;
                             self.run_profiler();
                         }
-                        if nav_button(ui, self.active_tab == ActiveTab::Doctor, "Doctor & Repair")
-                        {
+                        if nav_button(ui, self.active_tab == ActiveTab::Doctor, "Doctor & Repair") {
                             self.active_tab = ActiveTab::Doctor;
                             self.run_diagnostics();
                         }
