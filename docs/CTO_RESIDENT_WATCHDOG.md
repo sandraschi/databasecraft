@@ -173,7 +173,7 @@ In `databasecraft-app`, the 11th tab provides an immediate-mode operations cockp
 
 ## 6. Autonomous AI Agent Integration via MCP
 
-DatabaseCraft exposes the entire Watchdog subsystem over Model Context Protocol (`MCP 2024-11-05`):
+DatabaseCraft exposes the entire Watchdog subsystem over Model Context Protocol (`MCP 2026-07-28`):
 
 * **`db_watchdog_check`**: Runs an instant diagnostic audit and returns structured findings.
 * **`db_notifications_list`**: Returns filtered active notifications (`severity`, `unacknowledged_only`).

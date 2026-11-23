@@ -21,7 +21,7 @@ Tools like **Ultorg** proved that the **Relational Canvas** (developed at MIT CS
 2. **True Non-1NF Relational Perspectives**: Deep hierarchical nesting without Cartesian row multiplication.
 3. **Live Contextual Rollups**: Real-time inline aggregations for Gross Burn, Cash Runway, Net Margin, and AR Aging.
 4. **Instant Board Sync**: Pushes live hierarchical tables directly into **DeckCraft** (pitch decks) and **WordCraft** (investor letters).
-5. **Autonomous AI Financial Copilot**: Exposes the entire relational canvas over Model Context Protocol (`MCP 2024-11-05`) for natural language executive queries.
+5. **Autonomous AI Financial Copilot**: Exposes the entire relational canvas over Model Context Protocol (`MCP 2026-07-28`) for natural language executive queries.
 
 ---
 
@@ -53,7 +53,7 @@ Tools like **Ultorg** proved that the **Relational Canvas** (developed at MIT CS
 | **Continuous 24/7 Run** | Risk of background crashes & locking | Disconnects on idle timeouts | Proprietary desktop binary | **Designed for 24/7 desktop daemon execution** |
 | **Cost** | Part of O365 / SaaS | Free or $199/seat | **$35 / month / user ($420/yr)** | **100% Free & Open-Source (MIT/Apache-2.0)** |
 | **Executive Publishing** | Manual copy-paste into PowerPoint/Word | Manual CSV export | Static print/PDF export | **Direct live push into DeckCraft & WordCraft** |
-| **Agent / AI Integration** | External add-ins | None / rudimentary | Closed / proprietary | **Native MCP stdio (`2024-11-05`) + TCP Port `14113`** |
+| **Agent / AI Integration** | External add-ins | None / rudimentary | Closed / proprietary | **Native MCP stdio (`2026-07-28`) + TCP Port `14113`** |
 
 ---
 

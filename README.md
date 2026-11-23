@@ -23,7 +23,7 @@ Tell Cursor, Claude, Antigravity, or OpenCode: **Install this.**
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-craft.ps1
 ```
 
-Installs the Windows app, the CLI, and the MCP bundle.
+Installs the Windows app and the CLI (Start Menu shortcut, CLI on the user PATH). `-RegisterClients` also registers the MCP exe with the IDEs that are installed. `-Clients cursor,claude-desktop` limits that list. `-Mcpb` installs the Claude Desktop extension bundle.
 
 ---
 
@@ -46,7 +46,7 @@ Inspired by the MIT CSAIL *Relational Canvas* research (*SIEUFERD*) and commerci
 - **Relational Canvas & SQLite JSON Compiler**: Compiles nested visual perspective ASTs into high-performance SQLite 3.38+ `json_group_array(json_object(...))` queries in sub-milliseconds.
 - **Embedded & Local-First**: SQLite-backed `.dbcraft` storage with WAL mode, foreign key enforcement, and dense vector embeddings (`Cosine`, `DotProduct`, `L2`).
 - **Universal Command Bus (`Command::dispatch`)**: 100% of CLI subcommands, MCP `tools/call`, and desktop UI actions dispatch through the exact same typed Rust bus.
-- **Agent-Ready MCP Server**: Built-in line-delimited stdio Model Context Protocol (`MCP 2024-11-05`) server on registered control port `14113`.
+- **Agent-Ready MCP Server**: Built-in line-delimited stdio Model Context Protocol (`MCP 2026-07-28`) server on registered control port `14113`.
 - **Turnkey Domain Constructor**: Instantly construct battle-tested schemas for `small_business`, `billing` (Stripe mirror), `club`, `surgery`, and `creative_agency`.
 
 ---
@@ -122,7 +122,7 @@ cargo run -p databasecraft-app -- --control 14113
 - Autonomous CTO Watchdog with quiescent table mutation anomaly detection (e.g. `employees`, `roles`).
 - Desktop GUI with 11 integrated tabs: `Table Data`, `✨ Relational Canvas`, `SQL & NLQ Console`, `Schema ERD`, `AI Copilot`, `RAG Vectors`, `Profiler`, `Doctor`, `Domain Constructor`, `Cross-Craft Export`, `🚨 Alerts & Watchdog`.
 - 34 automated tests passing with zero warnings.
-- MCP stdio framing (`MCP 2024-11-05`) + TCP Plane 2 on control port `14113`.
+- MCP stdio framing (`MCP 2026-07-28`) + TCP Plane 2 on control port `14113`.
 
 **Lineage:**  
 Storytold ArtCraft ([storytold/artcraft](https://github.com/storytold/artcraft) — *"the IDE for artists"*) was the starting point. The 16 craft apps in the Storytold stable each ship one binary that is both human CLI and agent MCP server (stdio), headless-first, with `run.json` and report artifacts. DatabaseCraft provides the relational keystone for this ecosystem.

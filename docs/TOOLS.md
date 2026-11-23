@@ -1,6 +1,6 @@
 # DatabaseCraft — FastMCP & CLI Tools Specification
 
-**Protocol Version**: MCP `2024-11-05`  
+**Protocol Version**: MCP `2026-07-28`  
 **Parent Standard**: [`mcp-central-docs/standards/RUST_ARTCRAFT_STANDARD.md`](../../mcp-central-docs/standards/RUST_ARTCRAFT_STANDARD.md)  
 **Registered Port**: `14113` [Plane 2 Active]  
 **Architecture**: Headless-First Pure-Rust (`databasecraft-mcp`, `databasecraft-core`, `databasecraft-store`)  

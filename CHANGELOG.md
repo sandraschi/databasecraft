@@ -188,7 +188,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Cross-craft export transforms for **DesignCraft** (data merge), **DeckCraft** (slides), **WordCraft** (mail-merge), **GridCraft** (CSV), and **PdfCraft** (ledger tables).
 - **L2 `databasecraft-mcp`**:
   - CLI binary (`databasecraft-cli`) with subcommands `status`, `query`, `schema-inspect`, `record-insert`, `export-merge`, `seed-demo`, and `mcp`.
-  - Line-delimited MCP `2024-11-05` stdio server with strict pure JSON-RPC on `stdout` and diagnostic logs on `stderr`.
+  - Line-delimited MCP `2026-07-28` stdio server with strict pure JSON-RPC on `stdout` and diagnostic logs on `stderr`.
 - **L3 `databasecraft-app`**:
   - Native desktop shell calling `core::dispatch` in-process with zero WebView2.
   - `--smoke` headless verification flag for rapid CI testing.

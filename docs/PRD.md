@@ -63,7 +63,7 @@ Following the **ArtCraft Containment Harness** ([`CONTAINMENT_AND_CRATES.md`](..
 ### Layer Specifications
 * **L1 `databasecraft-store`**: Local-first relational storage wrapping `rusqlite` (WAL mode, foreign keys, busy timeout). Packed binary vector blobs, FTS5 full-text indexing, and zero-panic error handling.
 * **L1 `databasecraft-core`**: Schema DDL generator, validation fences (`validate_identifier`), cross-craft export formatting (DesignCraft, DeckCraft, WordCraft, GridCraft, PdfCraft), deterministic seeds (`ecommerce`, `film`, `kpi`), and the Universal Command Bus (`Command::dispatch`).
-* **L2 `databasecraft-mcp`**: Single binary providing human-friendly CLI subcommands (`--json`) and pure line-delimited JSON-RPC MCP `2024-11-05` server over stdio.
+* **L2 `databasecraft-mcp`**: Single binary providing human-friendly CLI subcommands (`--json`) and pure line-delimited JSON-RPC MCP `2026-07-28` server over stdio.
 * **L3 `databasecraft-app`**: Immediate-mode native desktop application calling `core` in-process with zero network sockets or child processes.
 
 ---
