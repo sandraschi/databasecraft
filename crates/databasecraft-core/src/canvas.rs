@@ -480,7 +480,11 @@ pub fn validate_formula_expr(expr: &str) -> Result<(), DatabaseCraftError> {
             "Formula expression must be 1..=256 characters".to_string(),
         ));
     }
-    if trimmed.contains(';') || trimmed.contains("--") || trimmed.contains("/*") || trimmed.contains("*/") {
+    if trimmed.contains(';')
+        || trimmed.contains("--")
+        || trimmed.contains("/*")
+        || trimmed.contains("*/")
+    {
         return Err(DatabaseCraftError::InvalidInput(
             "Formula expression cannot contain semicolons or SQL comments".to_string(),
         ));
@@ -490,7 +494,10 @@ pub fn validate_formula_expr(expr: &str) -> Result<(), DatabaseCraftError> {
         "SELECT", "INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "ATTACH", "DETACH", "PRAGMA",
         "CREATE", "REPLACE", "UNION",
     ] {
-        if upper.split(|c: char| !c.is_ascii_alphanumeric() && c != '_').any(|tok| tok == forbidden) {
+        if upper
+            .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+            .any(|tok| tok == forbidden)
+        {
             return Err(DatabaseCraftError::InvalidInput(format!(
                 "Forbidden SQL keyword in formula expression: {forbidden}"
             )));
