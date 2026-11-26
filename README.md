@@ -96,6 +96,8 @@ cargo run -p databasecraft-app -- --control 14113
 
 ## Deep Documentation
 
+* 📄 [**DatabaseCraft Help & Operator Guide**](HELP.md) — Quickstart tour, Relational Canvas walkthrough, CLI/MCP cheatsheet, and safety rules.
+* 📄 **Crate Sub-READMEs**: [`databasecraft-core`](crates/databasecraft-core/README.md) · [`databasecraft-store`](crates/databasecraft-store/README.md) · [`databasecraft-mcp`](crates/databasecraft-mcp/README.md) · [`databasecraft-app`](crates/databasecraft-app/README.md)
 * 📄 [**The CFO & Executive 24/7 Relational Cockpit**](docs/CFO_RELATIONAL_CANVAS.md) — Operational and architectural guide for running continuous financial perspectives.
 * 📄 [**The CTO Resident Operations Watchdog**](docs/CTO_RESIDENT_WATCHDOG.md) — Autonomous database health, quiescence anomaly detection, and Craft Notification Bus.
 * 📄 [**Product Requirements Document (PRD)**](docs/PRD.md) — 5-tier system architecture, functional specs (F1–F35), and containment rules.
