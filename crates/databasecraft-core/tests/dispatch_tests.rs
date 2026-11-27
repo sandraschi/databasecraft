@@ -239,7 +239,7 @@ async fn test_hybrid_rag_search() -> Result<(), Box<dyn std::error::Error>> {
 #[tokio::test]
 async fn test_command_registry_and_describe() -> Result<(), Box<dyn std::error::Error>> {
     let registry = databasecraft_core::command_registry();
-    assert_eq!(registry.len(), 37);
+    assert_eq!(registry.len(), 38);
 
     for cmd in &registry {
         assert!(!cmd.id.is_empty());
@@ -1168,5 +1168,75 @@ async fn test_canvas_column_reordering_and_resizing() -> Result<(), Box<dyn std:
     assert_eq!(spec.columns[0].width_px, Some(180));
     assert_eq!(spec.columns[2].width_px, Some(250));
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_export_datasette_bundle() -> Result<(), Box<dyn std::error::Error>> {
+    let store = DatabaseStore::open_in_memory()?;
+    let seed = dispatch(
+        Command::SeedDemo {
+            name: "ecommerce".to_string(),
+        },
+        &store,
+    )
+    .await;
+    assert_eq!(seed["success"], true);
+
+    let mut spec = databasecraft_core::canvas::CanvasSpec::new("products");
+    spec.columns = vec![
+        databasecraft_core::canvas::CanvasColumn::new("sku"),
+        databasecraft_core::canvas::CanvasColumn::new("title"),
+    ];
+    let spec_json = serde_json::to_string(&spec)?;
+    store.save_perspective("product_catalog", "products", &spec_json)?;
+
+    let out_dir =
+        std::env::temp_dir().join(format!("dbcraft_datasette_test_{}", uuid::Uuid::new_v4()));
+    let out_dir_str = out_dir.to_string_lossy().to_string();
+
+    let res = dispatch(
+        Command::ExportDatasette {
+            output_dir: out_dir_str,
+            title: Some("Shop Catalog".to_string()),
+            include_internal: Some(false),
+        },
+        &store,
+    )
+    .await;
+
+    assert_eq!(res["success"], true);
+    assert_eq!(res["database_key"], "shop_catalog");
+
+    let sqlite_path = res["sqlite_path"].as_str().ok_or("missing sqlite_path")?;
+    let metadata_path = res["metadata_path"]
+        .as_str()
+        .ok_or("missing metadata_path")?;
+    assert!(std::path::Path::new(sqlite_path).exists());
+    assert!(std::path::Path::new(metadata_path).exists());
+
+    // Verify metadata.json has tables + canned query from perspective
+    let meta_text = std::fs::read_to_string(metadata_path)?;
+    let meta: serde_json::Value = serde_json::from_str(&meta_text)?;
+    assert_eq!(meta["title"], "Shop Catalog");
+    assert_eq!(
+        meta["databases"]["shop_catalog"]["tables"]["products"]["label_column"],
+        "title"
+    );
+    let canned_sql = meta["databases"]["shop_catalog"]["queries"]["product_catalog"]["sql"]
+        .as_str()
+        .ok_or("missing canned query sql")?;
+    assert!(canned_sql.contains("products"));
+
+    // Verify internal _dbcraft_* tables were stripped from the exported sqlite
+    let exported = DatabaseStore::open(sqlite_path)?;
+    let check_internal = exported
+        .query("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '_dbcraft_%';")?;
+    assert_eq!(check_internal.row_count, 0);
+    let products_check = exported.query("SELECT COUNT(*) FROM products;")?;
+    assert_eq!(products_check.row_count, 1);
+
+    drop(exported);
+    let _ = std::fs::remove_dir_all(&out_dir);
     Ok(())
 }

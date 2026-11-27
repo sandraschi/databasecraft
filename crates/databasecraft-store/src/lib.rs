@@ -362,11 +362,7 @@ impl DatabaseStore {
     }
 
     fn validate_ident(name: &str) -> Result<(), StoreError> {
-        if name.is_empty()
-            || !name
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '_')
-        {
+        if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
             return Err(StoreError::InvalidInput(format!(
                 "identifier '{name}' must be non-empty alphanumeric/underscore"
             )));
@@ -378,7 +374,13 @@ impl DatabaseStore {
         let mut out: String = raw
             .trim()
             .chars()
-            .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
         while out.starts_with('_') {
             out.remove(0);
@@ -450,7 +452,9 @@ impl DatabaseStore {
 
         let raw_headers = Self::parse_csv_line(lines[0]);
         if raw_headers.is_empty() {
-            return Err(StoreError::InvalidInput("CSV header row is empty".to_string()));
+            return Err(StoreError::InvalidInput(
+                "CSV header row is empty".to_string(),
+            ));
         }
         let col_names: Vec<String> = raw_headers
             .iter()
@@ -523,7 +527,11 @@ impl DatabaseStore {
     }
 
     /// Import a JSON array of objects into a SQLite table in a single transaction.
-    pub fn import_json_str(&self, table_name: &str, json_content: &str) -> Result<usize, StoreError> {
+    pub fn import_json_str(
+        &self,
+        table_name: &str,
+        json_content: &str,
+    ) -> Result<usize, StoreError> {
         Self::validate_ident(table_name)?;
         let parsed: serde_json::Value = serde_json::from_str(json_content)
             .map_err(|e| StoreError::InvalidInput(format!("invalid JSON: {e}")))?;
@@ -968,6 +976,33 @@ impl DatabaseStore {
         let sql = format!("VACUUM INTO '{escaped}';");
         self.execute(&sql)?;
         Ok(())
+    }
+
+    /// Drop internal `_dbcraft_*` metadata tables (used when producing clean external exports).
+    pub fn drop_internal_tables(&self) -> Result<Vec<String>, StoreError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Lock(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT name FROM sqlite_master
+             WHERE type='table' AND name LIKE '_dbcraft_%'
+             ORDER BY name ASC;",
+        )?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        let mut tables = Vec::new();
+        for r in rows {
+            tables.push(r?);
+        }
+        drop(stmt);
+
+        let mut dropped = Vec::new();
+        for name in tables {
+            Self::validate_ident(&name)?;
+            conn.execute(&format!("DROP TABLE IF EXISTS \"{name}\";"), [])?;
+            dropped.push(name);
+        }
+        Ok(dropped)
     }
 
     /// List existing indexes for a given table.
