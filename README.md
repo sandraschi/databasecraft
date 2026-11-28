@@ -17,7 +17,7 @@
 
 ## Install
 
-Tell Cursor, Claude, Antigravity, or OpenCode: **Install this.**
+Tell Claude, Cursor, Antigravity, or OpenCode: **Install databasecraft from github sandraschi.**
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-craft.ps1
